@@ -1,0 +1,45 @@
+{
+  "expo": {
+    "name": "Pure Love",
+    "slug": "pure-love",
+    "scheme": "purelove",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "backgroundColor": "#FBF3EA",
+    "ios": {
+      "supportsTablet": true,
+      "bundleIdentifier": "com.purelove.app"
+    },
+    "android": {
+      "package": "com.purelove.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#FBF3EA",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false
+    },
+    "web": {
+      "favicon": "./assets/favicon.png",
+      "bundler": "metro",
+      "output": "single"
+    },
+    "plugins": [
+      "expo-router",
+      "expo-font",
+      [
+        "expo-image-picker",
+        {
+          "photosPermission": "Pick photos to share as moments with your partner.",
+          "cameraPermission": "Snap photos to share as moments with your partner."
+        }
+      ]
+    ],
+    "experiments": {
+      "typedRoutes": false
+    }
+  }
+}
