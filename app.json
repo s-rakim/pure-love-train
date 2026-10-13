@@ -40,6 +40,12 @@
     ],
     "experiments": {
       "typedRoutes": false
+    },
+    "owner": "s-rakim",
+    "extra": {
+      "eas": {
+        "projectId": "7d7df6cd-d059-4a5d-9828-daf904cec3b8"
+      }
     }
   }
 }
