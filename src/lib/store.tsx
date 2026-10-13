@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from 'react';
 
-import type { CycleSettings, Period } from './cycle';
+import type { CycleSettings, Period, SharedCycle } from './cycle';
 import type { DateKey } from './dates';
 import { DATE_IDEAS } from './questions';
 
@@ -31,6 +31,8 @@ export type Moment = {
   caption: string;
   from: Person;
   createdAt: string;
+  /** Set once the photo is stored on the sync server. */
+  photoId?: string;
 };
 
 export type Note = { id: string; text: string; from: Person; createdAt: string };
@@ -39,11 +41,28 @@ export type Mood = { emoji: string; label: string; at: string };
 
 export type ListItem = { id: string; text: string; done: boolean };
 
+/** What a partner shares about their cycle; raw logs and symptoms never leave the phone. */
+export type PartnerCycle = SharedCycle;
+
+export type SyncState = {
+  serverUrl: string;
+  token: string;
+  memberId: string;
+  /** Shown until the partner joins, then cleared by the server. */
+  pairCode: string | null;
+  partnerId?: string;
+  /** Highest server sequence number already pulled. */
+  cursor: number;
+  /** Fingerprint of each record last sent, keyed by kind:id, so only changes are pushed. */
+  pushed: Record<string, string>;
+  lastSyncAt?: string;
+  error?: string;
+};
+
 export type State = {
   onboarded: boolean;
   names: Record<Person, string>;
   togetherSince?: DateKey;
-  pairCode: string;
   cycle: {
     tracking: boolean;
     shareWithPartner: boolean;
@@ -56,22 +75,18 @@ export type State = {
   notes: Note[];
   moods: Partial<Record<Person, Mood>>;
   dateIdeas: ListItem[];
+  partnerCycle?: PartnerCycle;
+  sync?: SyncState;
 };
 
 const STORAGE_KEY = 'pure-love/state/v1';
 
 export const newId = () => `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
 
-function makePairCode(): string {
-  const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  return Array.from({ length: 6 }, () => alphabet[Math.floor(Math.random() * alphabet.length)]).join('');
-}
-
 export function initialState(): State {
   return {
     onboarded: false,
     names: { me: '', partner: '' },
-    pairCode: makePairCode(),
     cycle: {
       tracking: true,
       shareWithPartner: true,

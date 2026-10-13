@@ -3,9 +3,9 @@ import { router } from 'expo-router';
 import { useState } from 'react';
 import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { PairingCard } from '../components/PairingCard';
 import { Body, Button, Card, Chip, Eyebrow, Field, Row, Screen } from '../components/ui';
 import { isValidKey } from '../lib/dates';
-import { withDemoPartner } from '../lib/demo';
 import { useStore } from '../lib/store';
 import { colors, fonts, radius, space } from '../theme';
 
@@ -63,21 +63,7 @@ export default function Settings() {
         <Button label="Save" onPress={saveProfile} disabled={!me.trim() || !partner.trim() || !sinceValid} />
       </Card>
 
-      <Card>
-        <Eyebrow>Pairing</Eyebrow>
-        <View style={styles.code}>
-          <Text style={styles.codeText}>{state.pairCode}</Text>
-        </View>
-        <Body>
-          This is your invite code. Syncing between two phones is coming soon; for now everything stays on this
-          phone. You can preview the shared features with a demo partner.
-        </Body>
-        <Button
-          label="Preview with a demo partner"
-          variant="secondary"
-          onPress={() => update(withDemoPartner)}
-        />
-      </Card>
+      <PairingCard />
 
       <Card>
         <Eyebrow>Cycle</Eyebrow>
@@ -131,14 +117,6 @@ function Stepper({ label, value, onChange }: { label: string; value: number; onC
 }
 
 const styles = StyleSheet.create({
-  code: {
-    alignSelf: 'center',
-    backgroundColor: colors.flameSoft,
-    borderRadius: radius.md,
-    paddingHorizontal: space(6),
-    paddingVertical: space(3),
-  },
-  codeText: { fontFamily: fonts.display, fontSize: 30, letterSpacing: 6, color: colors.flameDeep },
   step: {
     width: 34,
     height: 34,

@@ -10,7 +10,12 @@
     "backgroundColor": "#FBF3EA",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.purelove.app"
+      "bundleIdentifier": "com.purelove.app",
+      "infoPlist": {
+        "NSAppTransportSecurity": {
+          "NSAllowsArbitraryLoads": true
+        }
+      }
     },
     "android": {
       "package": "com.purelove.app",
@@ -35,6 +40,14 @@
         {
           "photosPermission": "Pick photos to share as moments with your partner.",
           "cameraPermission": "Snap photos to share as moments with your partner."
+        }
+      ],
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "usesCleartextTraffic": true
+          }
         }
       ]
     ],

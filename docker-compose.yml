@@ -1,0 +1,12 @@
+services:
+  pure-love-server:
+    build: ./server
+    container_name: pure-love-server
+    restart: unless-stopped
+    ports:
+      - "8787:8787"
+    volumes:
+      - pure-love-data:/data
+
+volumes:
+  pure-love-data:

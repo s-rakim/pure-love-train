@@ -9,6 +9,7 @@ import { StatusBar } from 'expo-status-bar';
 import { View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { SyncAgent } from '../components/SyncAgent';
 import { StoreProvider, useStore } from '../lib/store';
 import { colors, fonts } from '../theme';
 
@@ -35,19 +36,22 @@ function Navigator() {
   const { ready } = useStore();
   if (!ready) return <View style={{ flex: 1, backgroundColor: colors.background }} />;
   return (
-    <Stack
-      screenOptions={{
-        headerShadowVisible: false,
-        headerStyle: { backgroundColor: colors.background },
-        headerTintColor: colors.ink,
-        headerTitleStyle: { fontFamily: fonts.display, fontSize: 18 },
-        contentStyle: { backgroundColor: colors.background },
-      }}
-    >
-      <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-      <Stack.Screen name="onboarding" options={{ headerShown: false, gestureEnabled: false }} />
-      <Stack.Screen name="log/[date]" options={{ presentation: 'modal', title: 'Log your day' }} />
-      <Stack.Screen name="settings" options={{ title: 'Settings' }} />
-    </Stack>
+    <>
+      <SyncAgent />
+      <Stack
+        screenOptions={{
+          headerShadowVisible: false,
+          headerStyle: { backgroundColor: colors.background },
+          headerTintColor: colors.ink,
+          headerTitleStyle: { fontFamily: fonts.display, fontSize: 18 },
+          contentStyle: { backgroundColor: colors.background },
+        }}
+      >
+        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="onboarding" options={{ headerShown: false, gestureEnabled: false }} />
+        <Stack.Screen name="log/[date]" options={{ presentation: 'modal', title: 'Log your day' }} />
+        <Stack.Screen name="settings" options={{ title: 'Settings' }} />
+      </Stack>
+    </>
   );
 }

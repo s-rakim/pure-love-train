@@ -13,6 +13,8 @@ export type Phase = 'period' | 'follicular' | 'fertile' | 'ovulation' | 'luteal'
 export type DayKind = 'period' | 'predicted' | 'fertile' | 'ovulation';
 
 export type Prediction = {
+  periodStart: DateKey;
+  periodEnd: DateKey;
   cycleDay: number;
   cycleLength: number;
   periodLength: number;
@@ -95,16 +97,29 @@ export function averagePeriodLength(periods: Period[], fallback: number, today: 
   return lengths.length ? Math.round(average(lengths)) : fallback;
 }
 
-function phaseFor(key: DateKey, current: Period, periodLength: number, ovulation: DateKey): Phase {
-  const periodEnd = current.end > addDays(current.start, periodLength - 1)
-    ? current.end
-    : addDays(current.start, periodLength - 1);
+function phaseFor(key: DateKey, periodEnd: DateKey, ovulation: DateKey): Phase {
   if (key <= periodEnd) return 'period';
   const toOvulation = diffDays(key, ovulation);
   if (toOvulation === 0) return 'ovulation';
   if (toOvulation > 0 && toOvulation <= 5) return 'fertile';
   if (toOvulation === -1) return 'fertile';
   return toOvulation > 0 ? 'follicular' : 'luteal';
+}
+
+/** The summary a partner sees; enough to work out the day and phase on any later date. */
+export type SharedCycle = {
+  periodStart: DateKey;
+  periodEnd: DateKey;
+  nextPeriod: DateKey;
+  ovulation: DateKey;
+};
+
+export function sharedCycleOn(c: SharedCycle, today: DateKey) {
+  return {
+    cycleDay: diffDays(c.periodStart, today) + 1,
+    phase: phaseFor(today, c.periodEnd, c.ovulation),
+    daysUntilNext: diffDays(today, c.nextPeriod),
+  };
 }
 
 export function predict(
@@ -121,7 +136,12 @@ export function predict(
   const nextPeriod = addDays(current.start, cycleLength);
   const ovulation = addDays(nextPeriod, -LUTEAL_DAYS);
 
+  const typicalEnd = addDays(current.start, periodLength - 1);
+  const periodEnd = current.end > typicalEnd ? current.end : typicalEnd;
+
   return {
+    periodStart: current.start,
+    periodEnd,
     cycleDay: diffDays(current.start, today) + 1,
     cycleLength,
     periodLength,
@@ -130,7 +150,7 @@ export function predict(
     ovulation,
     fertileStart: addDays(ovulation, -5),
     fertileEnd: addDays(ovulation, 1),
-    phase: phaseFor(today, current, periodLength, ovulation),
+    phase: phaseFor(today, periodEnd, ovulation),
   };
 }
 

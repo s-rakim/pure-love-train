@@ -6,9 +6,9 @@ import { Pressable, StyleSheet, Text, View } from 'react-native';
 import { PhotoWidget } from '../../components/PhotoWidget';
 import { QuestionCard } from '../../components/QuestionCard';
 import { Avatar, Body, Button, Card, Chip, Eyebrow, Field, Heading, Row, Screen, Title } from '../../components/ui';
-import { phaseCopy } from '../../lib/cycle';
+import { phaseCopy, sharedCycleOn } from '../../lib/cycle';
 import { relativeTime, shortDate } from '../../lib/dates';
-import { useCycle, useDaysTogether, useNames } from '../../lib/hooks';
+import { useCycle, useDaysTogether, useNames, useToday } from '../../lib/hooks';
 import { newId, useStore, type Person } from '../../lib/store';
 import { colors, fonts, space } from '../../theme';
 
@@ -138,6 +138,8 @@ export default function Home() {
         )}
       </Row>
 
+      {state.partnerCycle ? <PartnerCycleCard name={names.partner} /> : null}
+
       <Card>
         <Eyebrow>Love notes</Eyebrow>
         {latestNoteFromPartner ? (
@@ -154,6 +156,29 @@ export default function Home() {
         <Button label="Send note" variant="secondary" onPress={sendNote} disabled={!note.trim()} />
       </Card>
     </Screen>
+  );
+}
+
+function PartnerCycleCard({ name }: { name: string }) {
+  const { state } = useStore();
+  const today = useToday();
+  const c = state.partnerCycle!;
+  const { cycleDay, phase, daysUntilNext: daysUntil } = sharedCycleOn(c, today);
+  return (
+    <Card tone="plum">
+      <Eyebrow color={colors.plum}>{name}'s cycle</Eyebrow>
+      <Heading style={{ fontSize: 19 }}>
+        Day {cycleDay} · {phaseCopy[phase].title}
+      </Heading>
+      <Body style={{ color: colors.ink, fontSize: 14 }}>
+        {daysUntil > 0
+          ? `Period expected in ${daysUntil} day${daysUntil === 1 ? '' : 's'} (${shortDate(c.nextPeriod)}).`
+          : daysUntil === 0
+            ? 'Period expected today.'
+            : `Period was expected ${shortDate(c.nextPeriod)}.`}{' '}
+        {phaseCopy[phase].body}
+      </Body>
+    </Card>
   );
 }
 
