@@ -2,6 +2,7 @@ import { router } from 'expo-router';
 import { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
+import { Flame } from '../components/Flame';
 import { Body, Button, Chip, Field, Screen, Title } from '../components/ui';
 import { isValidKey } from '../lib/dates';
 import { useStore } from '../lib/store';
@@ -30,10 +31,12 @@ export default function Onboarding() {
 
   return (
     <Screen style={{ paddingTop: space(10), gap: space(6) }}>
-      <View style={{ gap: space(2) }}>
-        <Text style={styles.flame}>🕯️</Text>
-        <Title>A little space{'\n'}just for two.</Title>
-        <Body>Daily questions, shared moments, and your cycle, all in one cosy place.</Body>
+      <View style={{ gap: space(2), alignItems: 'center' }}>
+        <Flame size={84} />
+        <Title style={{ textAlign: 'center' }}>A little space{'\n'}just for two.</Title>
+        <Body style={{ textAlign: 'center' }}>
+          Daily questions, shared moments, and your cycle, all in one cosy place.
+        </Body>
       </View>
 
       <Field label="Your name" value={me} onChangeText={setMe} placeholder="Alex" autoCapitalize="words" />
@@ -73,7 +76,6 @@ export default function Onboarding() {
 }
 
 const styles = StyleSheet.create({
-  flame: { fontSize: 44 },
   label: { fontFamily: fonts.bodyBold, fontSize: 13, color: colors.inkSoft },
   error: { fontFamily: fonts.body, fontSize: 13, color: colors.flameDeep },
 });

@@ -15,7 +15,14 @@ import {
 } from 'react-native';
 import { SafeAreaView, type Edge } from 'react-native-safe-area-context';
 
-import { colors, fonts, radius, shadow, space } from '../theme';
+import { colors, fonts, radius, shadow, space, TAB_BAR_SPACE } from '../theme';
+
+/** Black or white, whichever reads better on the given background colour. */
+export function textOn(hex: string) {
+  const n = parseInt(hex.slice(1, 7), 16);
+  const lum = 0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255);
+  return lum > 150 ? colors.black : colors.white;
+}
 
 export function tap() {
   if (Platform.OS !== 'web') Haptics.selectionAsync().catch(() => {});
@@ -88,7 +95,7 @@ export function Card({
 }: {
   children: ReactNode;
   style?: StyleProp<ViewStyle>;
-  tone?: 'surface' | 'flame' | 'blush' | 'ember' | 'plum' | 'sage';
+  tone?: 'surface' | 'flame' | 'blush' | 'ember' | 'plum' | 'sage' | 'sky' | 'rose';
   onPress?: () => void;
 }) {
   const bg = {
@@ -98,18 +105,24 @@ export function Card({
     ember: colors.emberSoft,
     plum: colors.plumSoft,
     sage: colors.sage,
+    sky: colors.skySoft,
+    rose: colors.roseSoft,
   }[tone];
-  const content = <View style={[styles.card, { backgroundColor: bg }, style]}>{children}</View>;
-  if (!onPress) return content;
+  if (!onPress) return <View style={[styles.card, { backgroundColor: bg }, style]}>{children}</View>;
   return (
     <Pressable
       onPress={() => {
         tap();
         onPress();
       }}
-      style={({ pressed }) => ({ transform: [{ scale: pressed ? 0.98 : 1 }] })}
+      style={({ pressed }) => [
+        styles.card,
+        { backgroundColor: bg },
+        style,
+        { transform: [{ scale: pressed ? 0.98 : 1 }] },
+      ]}
     >
-      {content}
+      {children}
     </Pressable>
   );
 }
@@ -144,12 +157,13 @@ export function Button({
       }}
       style={({ pressed }) => [
         styles.button,
-        { backgroundColor: palette.bg, opacity: disabled ? 0.45 : pressed ? 0.85 : 1 },
+        { backgroundColor: disabled && variant !== 'ghost' ? colors.surfaceRaised : palette.bg },
+        { opacity: disabled ? 0.7 : pressed ? 0.85 : 1 },
         style,
       ]}
     >
       {icon}
-      <Text style={[styles.buttonLabel, { color: palette.fg }]}>{label}</Text>
+      <Text style={[styles.buttonLabel, { color: disabled ? colors.muted : palette.fg }]}>{label}</Text>
     </Pressable>
   );
 }
@@ -178,7 +192,7 @@ export function Chip({
         selected ? { backgroundColor: color, borderColor: color } : { borderColor: colors.line },
       ]}
     >
-      <Text style={[styles.chipLabel, { color: selected ? colors.white : colors.inkSoft }]}>{label}</Text>
+      <Text style={[styles.chipLabel, { color: selected ? textOn(color) : colors.inkSoft }]}>{label}</Text>
     </Pressable>
   );
 }
@@ -204,7 +218,7 @@ export function Avatar({ name, size = 40, tone = colors.flame }: { name: string;
         alignItems: 'center',
         justifyContent: 'center',
         borderWidth: 2,
-        borderColor: colors.surface,
+        borderColor: colors.background,
       }}
     >
       <Text style={{ color: colors.white, fontFamily: fonts.bodyBold, fontSize: size * 0.4 }}>
@@ -220,9 +234,9 @@ export function Row({ children, style }: { children: ReactNode; style?: StylePro
 
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: colors.background },
-  scrollContent: { padding: space(5), paddingBottom: space(16), gap: space(4) },
-  title: { fontFamily: fonts.display, fontSize: 32, color: colors.ink, letterSpacing: -0.5 },
-  heading: { fontFamily: fonts.display, fontSize: 21, color: colors.ink, letterSpacing: -0.2 },
+  scrollContent: { padding: space(5), paddingBottom: TAB_BAR_SPACE, gap: space(4) },
+  title: { fontFamily: fonts.display, fontSize: 30, color: colors.ink, letterSpacing: -0.8 },
+  heading: { fontFamily: fonts.display, fontSize: 20, color: colors.ink, letterSpacing: -0.4 },
   body: { fontFamily: fonts.body, fontSize: 15, lineHeight: 22, color: colors.inkSoft },
   eyebrow: { fontFamily: fonts.bodyBold, fontSize: 12, letterSpacing: 1.2, textTransform: 'uppercase' },
   card: { borderRadius: radius.lg, padding: space(5), gap: space(3), ...shadow },
@@ -245,7 +259,7 @@ const styles = StyleSheet.create({
   chipLabel: { fontFamily: fonts.bodyMedium, fontSize: 14 },
   fieldLabel: { fontFamily: fonts.bodyBold, fontSize: 13, color: colors.inkSoft },
   input: {
-    backgroundColor: colors.surface,
+    backgroundColor: colors.surfaceRaised,
     borderRadius: radius.md,
     borderWidth: 1.5,
     borderColor: colors.line,
@@ -256,3 +270,13 @@ const styles = StyleSheet.create({
     color: colors.ink,
   },
 });
+
+/** Section label above a group of cards, like "Today" or "Activities". */
+export function SectionTitle({ children, action }: { children: ReactNode; action?: ReactNode }) {
+  return (
+    <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: space(2) }}>
+      <Text style={{ fontFamily: fonts.bodyBold, fontSize: 18, color: colors.ink, letterSpacing: -0.3 }}>{children}</Text>
+      {action}
+    </View>
+  );
+}

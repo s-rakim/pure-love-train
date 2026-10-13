@@ -26,21 +26,33 @@ export default function TabsLayout() {
         tabBarActiveTintColor: colors.flame,
         tabBarInactiveTintColor: colors.muted,
         tabBarLabelStyle: { fontFamily: fonts.bodyMedium, fontSize: 11 },
+        // A rounded bar that floats above the content, like a dock.
         tabBarStyle: {
-          backgroundColor: colors.surfaceWarm,
+          position: 'absolute',
+          left: 16,
+          right: 16,
+          bottom: 20,
+          height: 74,
+          paddingTop: 10,
+          paddingBottom: 12,
+          borderRadius: 34,
+          borderTopWidth: 1,
+          borderWidth: 1,
+          borderColor: colors.line,
           borderTopColor: colors.line,
-          height: 84,
-          paddingTop: 8,
+          backgroundColor: colors.surface,
         },
+        sceneStyle: { backgroundColor: colors.background },
       }}
     >
-      <Tabs.Screen name="index" options={tab('Us', 'heart-outline', 'heart')} />
+      <Tabs.Screen name="index" options={tab('Home', 'flame-outline', 'flame')} />
+      <Tabs.Screen name="connect" options={tab('Connect', 'chatbubbles-outline', 'chatbubbles')} />
       <Tabs.Screen name="moments" options={tab('Moments', 'camera-outline', 'camera')} />
       <Tabs.Screen
         name="cycle"
         options={{ ...tab('Cycle', 'water-outline', 'water'), href: state.cycle.tracking ? undefined : null }}
       />
-      <Tabs.Screen name="together" options={tab('Together', 'sparkles-outline', 'sparkles')} />
+      <Tabs.Screen name="us" options={tab('Us', 'heart-outline', 'heart')} />
     </Tabs>
   );
 }

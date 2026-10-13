@@ -1,28 +1,35 @@
-// Warm, candlelit palette: cream paper, soft blush, and a flame accent.
+// Candlelit at night: near-black surfaces, warm off-white text and a bright flame accent.
 export const colors = {
-  background: '#FBF3EA',
-  surface: '#FFFFFF',
-  surfaceWarm: '#FFF8F1',
-  ink: '#2A1D1A',
-  inkSoft: '#5C4842',
-  muted: '#9A8680',
-  line: '#EEDFD3',
-  flame: '#F2643D',
-  flameDeep: '#D9482A',
-  flameSoft: '#FDE3D8',
-  blush: '#F6C9C2',
-  ember: '#F5B94A',
-  emberSoft: '#FCEBC8',
-  sage: '#CFE3D4',
-  sageDeep: '#5E8D6C',
-  plum: '#6B3A5B',
-  plumSoft: '#EBDDE6',
+  background: '#0B0A09',
+  surface: '#191615',
+  surfaceRaised: '#231F1D',
+  surfaceWarm: '#141110',
+  ink: '#FFF6EE',
+  inkSoft: '#CDBFB6',
+  muted: '#8C807A',
+  line: '#2D2826',
+  flame: '#FF6B2C',
+  flameDeep: '#FF9A5C',
+  flameSoft: '#2E1B12',
+  blush: '#4A2A22',
+  ember: '#FFB938',
+  emberSoft: '#2A2113',
+  sage: '#1D3A29',
+  sageDeep: '#6FD39A',
+  fertile: '#24583B',
+  plum: '#B77CF2',
+  plumSoft: '#231A2D',
+  sky: '#5BB8FF',
+  skySoft: '#132131',
+  rose: '#FF5C8A',
+  roseSoft: '#2E1520',
   white: '#FFFFFF',
+  black: '#0B0A09',
 } as const;
 
 export const fonts = {
-  display: 'Fraunces_600SemiBold',
-  displayItalic: 'Fraunces_400Regular_Italic',
+  display: 'DMSans_700Bold',
+  displayItalic: 'DMSans_500Medium',
   body: 'DMSans_400Regular',
   bodyMedium: 'DMSans_500Medium',
   bodyBold: 'DMSans_700Bold',
@@ -31,17 +38,18 @@ export const fonts = {
 export const radius = {
   sm: 10,
   md: 16,
-  lg: 24,
-  xl: 32,
+  lg: 22,
+  xl: 30,
   pill: 999,
 } as const;
 
 export const space = (n: number) => n * 4;
 
+// Shadows barely read on black, so cards lean on a hairline border instead.
 export const shadow = {
-  shadowColor: '#7A3A22',
-  shadowOpacity: 0.08,
-  shadowRadius: 18,
-  shadowOffset: { width: 0, height: 8 },
-  elevation: 3,
+  borderWidth: 1,
+  borderColor: '#2D2826',
 } as const;
+
+/** Room left under scrolling content for the floating tab bar. */
+export const TAB_BAR_SPACE = 120;

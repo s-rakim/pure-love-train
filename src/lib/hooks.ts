@@ -2,6 +2,7 @@ import { useMemo } from 'react';
 
 import { calendarMap, predict } from './cycle';
 import { diffDays, todayKey } from './dates';
+import { activeDays, streakLength, weekStrip } from './streak';
 import { useStore } from './store';
 
 export function useToday() {
@@ -35,4 +36,14 @@ export function useNames() {
     me: state.names.me || 'You',
     partner: state.names.partner || 'Your person',
   };
+}
+
+export function useStreak() {
+  const { state } = useStore();
+  const today = useToday();
+  const { answers, moments, notes } = state;
+  return useMemo(() => {
+    const days = activeDays({ answers, moments, notes });
+    return { count: streakLength(days, today), week: weekStrip(days, today), doneToday: days.has(today) };
+  }, [answers, moments, notes, today]);
 }

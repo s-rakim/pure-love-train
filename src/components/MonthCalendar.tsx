@@ -91,7 +91,7 @@ export function MonthCalendar({
       <View style={styles.legend}>
         <Legend color={colors.flame} label="Period" />
         <Legend color={colors.flameSoft} border={colors.flame} label="Predicted" />
-        <Legend color={colors.sage} label="Fertile" />
+        <Legend color={colors.fertile} label="Fertile" />
         <Legend color={colors.plum} label="Ovulation" />
       </View>
     </View>
@@ -121,7 +121,7 @@ const dayStyles = StyleSheet.create({
     borderColor: colors.flame,
     borderStyle: 'dashed',
   },
-  fertile: { backgroundColor: colors.sage },
+  fertile: { backgroundColor: colors.fertile },
   ovulation: { backgroundColor: colors.plum },
 });
 

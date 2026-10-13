@@ -2,16 +2,17 @@
 
 One cosy app for couples that brings together three things people usually juggle in separate apps:
 
-- **Us** – a days-together counter, both partners' moods, a daily question whose answers unlock only once you've both replied, and love notes.
+- **Home** – your shared streak with a little flame that stays lit while you keep showing up, today's checklist, both moods, the latest photo and note from your partner, and a grid of things to do together.
+- **Connect** – a daily question whose answers unlock only once you've both replied, love notes, and every past answer.
 - **Moments** – snap or pick a photo, add a caption and send it to your partner. The newest one shows on a square photo tile, the same tile a home screen widget will show.
 - **Cycle** – log period days, flow, symptoms and mood. The app predicts the next period, fertile window and ovulation from your own history, and you choose whether your partner sees your phase.
-- **Together** – upcoming milestones (every 100 days, anniversaries), past answers, a shared date-idea list and the love-note history.
+- **Us** – the couple dashboard: streak week, days together, countdowns to milestones and anniversaries, pairing and a shared date-idea list.
 
-The look is warm and soft: cream paper, flame orange, blush and plum, Fraunces headings and DM Sans body text. All code and copy here is original.
+The look follows the Candle couples app: a dark, near-black interface lit by a bright flame orange, colourful activity cards, rounded DM Sans type and a floating tab bar. All code, artwork and copy here is original.
 
-| Us | Moments | Cycle | Together |
-| --- | --- | --- | --- |
-| ![Us](docs/screenshots/home.png) | ![Moments](docs/screenshots/moments.png) | ![Cycle](docs/screenshots/cycle.png) | ![Together](docs/screenshots/together.png) |
+| Home | Connect | Moments | Cycle | Us |
+| --- | --- | --- | --- | --- |
+| ![Home](docs/screenshots/home.png) | ![Connect](docs/screenshots/connect.png) | ![Moments](docs/screenshots/moments.png) | ![Cycle](docs/screenshots/cycle.png) | ![Us](docs/screenshots/us.png) |
 
 ## Running it
 
@@ -21,7 +22,7 @@ Built with Expo (SDK 57), Expo Router and TypeScript.
 npm install
 npx expo start        # then press i / a / w, or scan the QR code with Expo Go
 npm run typecheck
-npm test              # cycle, date and sync tests (node:test)
+npm test              # cycle, date, streak and sync tests (node:test)
 ```
 
 ## Syncing two phones
@@ -63,10 +64,10 @@ Next steps:
 
 ```
 src/app/            screens (Expo Router)
-  (tabs)/           Us, Moments, Cycle, Together
+  (tabs)/           Home, Connect, Moments, Cycle, Us
   log/[date].tsx    day log modal
   onboarding.tsx, settings.tsx
-src/components/     shared UI, calendar, photo widget, question card
+src/components/     shared UI, flame, calendar, photo widget, question card, sync
 src/lib/            store, cycle maths, dates, questions, photo helpers, sync
 src/theme/          colours, fonts, spacing
 server/             sync server (Node + SQLite), Dockerfile

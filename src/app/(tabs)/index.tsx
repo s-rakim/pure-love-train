@@ -1,16 +1,16 @@
 import { Ionicons } from '@expo/vector-icons';
-import { router } from 'expo-router';
+import { router, type Href } from 'expo-router';
 import { useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
+import { Flame } from '../../components/Flame';
 import { PhotoWidget } from '../../components/PhotoWidget';
-import { QuestionCard } from '../../components/QuestionCard';
-import { Avatar, Body, Button, Card, Chip, Eyebrow, Field, Heading, Row, Screen, Title } from '../../components/ui';
+import { Body, Card, Chip, Eyebrow, Heading, Row, Screen, SectionTitle, Title, tap } from '../../components/ui';
 import { phaseCopy, sharedCycleOn } from '../../lib/cycle';
-import { relativeTime, shortDate } from '../../lib/dates';
-import { useCycle, useDaysTogether, useNames, useToday } from '../../lib/hooks';
-import { newId, useStore, type Person } from '../../lib/store';
-import { colors, fonts, space } from '../../theme';
+import { relativeTime, shortDate, toKey } from '../../lib/dates';
+import { useCycle, useDaysTogether, useNames, useStreak, useToday } from '../../lib/hooks';
+import { useStore, type Person } from '../../lib/store';
+import { colors, fonts, radius, space } from '../../theme';
 
 const MOODS = [
   { emoji: '🥰', label: 'Loved' },
@@ -28,64 +28,91 @@ function greeting(now = new Date()) {
   return 'Good evening';
 }
 
+type IconName = keyof typeof Ionicons.glyphMap;
+
 export default function Home() {
   const { state, update } = useStore();
   const names = useNames();
+  const today = useToday();
   const days = useDaysTogether();
+  const streak = useStreak();
   const { prediction } = useCycle();
   const [pickingMood, setPickingMood] = useState(false);
-  const [note, setNote] = useState('');
 
   const latestFromPartner = state.moments.find((m) => m.from === 'partner');
   const latestNoteFromPartner = state.notes.find((n) => n.from === 'partner');
+  const checklist: { label: string; done: boolean; href: Href }[] = [
+    { label: "Answer today's question", done: !!state.answers[today]?.me, href: '/connect' },
+    {
+      label: `Send ${names.partner} a moment`,
+      done: state.moments.some((m) => m.from === 'me' && dayOf(m.createdAt) === today),
+      href: '/moments',
+    },
+    { label: 'Share how you feel', done: !!state.moods.me && dayOf(state.moods.me.at) === today, href: '/' },
+  ];
 
   const setMood = (emoji: string, label: string) => {
     update((s) => ({ ...s, moods: { ...s.moods, me: { emoji, label, at: new Date().toISOString() } } }));
     setPickingMood(false);
   };
 
-  const sendNote = () => {
-    const text = note.trim();
-    if (!text) return;
-    update((s) => ({
-      ...s,
-      notes: [{ id: newId(), text, from: 'me', createdAt: new Date().toISOString() }, ...s.notes],
-    }));
-    setNote('');
-  };
+  const nextIdea = state.dateIdeas.find((d) => !d.done)?.text;
 
   return (
     <Screen>
       <Row style={{ justifyContent: 'space-between' }}>
-        <View>
-          <Body muted>{greeting()},</Body>
+        <View style={{ flex: 1 }}>
+          <Body muted>{greeting()}</Body>
           <Title>{names.me}</Title>
         </View>
-        <Pressable accessibilityLabel="Settings" hitSlop={12} onPress={() => router.push('/settings')}>
-          <Ionicons name="settings-outline" size={24} color={colors.inkSoft} />
+        <Pressable
+          accessibilityLabel={`${streak.count} day streak`}
+          onPress={() => router.push('/us')}
+          style={styles.streakPill}
+        >
+          <Ionicons name="flame" size={18} color={streak.count ? colors.flame : colors.muted} />
+          <Text style={styles.streakText}>{streak.count}</Text>
+        </Pressable>
+        <Pressable accessibilityLabel="Settings" hitSlop={12} onPress={() => router.push('/settings')} style={styles.iconButton}>
+          <Ionicons name="settings-outline" size={20} color={colors.inkSoft} />
         </Pressable>
       </Row>
 
-      <Card tone="flame" style={{ alignItems: 'center', paddingVertical: space(7) }}>
-        <View style={{ flexDirection: 'row' }}>
-          <Avatar name={names.me} size={56} tone={colors.flameDeep} />
-          <View style={{ marginLeft: -14 }}>
-            <Avatar name={names.partner} size={56} tone={colors.plum} />
+      <Card style={{ gap: space(4) }}>
+        <Row style={{ gap: space(2) }}>
+          <Flame size={58} lit={streak.count > 0 || streak.doneToday} />
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text style={styles.heroTitle}>
+              {streak.count ? `${streak.count} day streak` : 'Light your flame'}
+            </Text>
+            <Body muted style={{ fontSize: 14, lineHeight: 19 }}>
+              {streak.doneToday
+                ? `You and ${names.partner} showed up today.`
+                : `Do one thing together today to keep it burning.`}
+            </Body>
           </View>
+        </Row>
+        <View style={{ gap: space(2) }}>
+          {checklist.map((item) => (
+            <Pressable
+              key={item.label}
+              onPress={() => {
+                tap();
+                if (item.href === '/') setPickingMood(true);
+                else router.push(item.href);
+              }}
+              style={styles.checkRow}
+            >
+              <Ionicons
+                name={item.done ? 'checkmark-circle' : 'ellipse-outline'}
+                size={22}
+                color={item.done ? colors.flame : colors.muted}
+              />
+              <Text style={[styles.checkLabel, item.done && { color: colors.muted }]}>{item.label}</Text>
+              <Ionicons name="chevron-forward" size={16} color={colors.muted} />
+            </Pressable>
+          ))}
         </View>
-        <Text style={styles.coupleNames}>
-          {names.me} & {names.partner}
-        </Text>
-        {days !== null ? (
-          <>
-            <Text style={styles.daysNumber}>{days.toLocaleString()}</Text>
-            <Text style={styles.daysLabel}>days together</Text>
-          </>
-        ) : (
-          <Pressable onPress={() => router.push('/settings')}>
-            <Text style={styles.daysLabel}>Add your anniversary in settings</Text>
-          </Pressable>
-        )}
       </Card>
 
       <Row style={{ alignItems: 'stretch' }}>
@@ -108,54 +135,116 @@ export default function Home() {
         </Card>
       ) : null}
 
-      <QuestionCard />
-
+      <SectionTitle>From {names.partner}</SectionTitle>
       <Row style={{ alignItems: 'stretch' }}>
         <Pressable onPress={() => router.push('/moments')}>
-          <PhotoWidget moment={latestFromPartner} senderName={names.partner} size={160} />
+          <PhotoWidget moment={latestFromPartner} senderName={names.partner} size={156} />
         </Pressable>
-        {state.cycle.tracking && prediction ? (
-          <Card tone="blush" style={{ flex: 1, justifyContent: 'center' }} onPress={() => router.push('/cycle')}>
-            <Eyebrow color={colors.flameDeep}>Cycle · Day {prediction.cycleDay}</Eyebrow>
-            <Heading style={{ fontSize: 18 }}>{phaseCopy[prediction.phase].title}</Heading>
-            <Body style={{ fontSize: 13, lineHeight: 18 }}>
-              {prediction.daysUntilNext > 0
-                ? `Period in ${prediction.daysUntilNext} day${prediction.daysUntilNext === 1 ? '' : 's'}`
-                : prediction.daysUntilNext === 0
-                  ? 'Period expected today'
-                  : `Period ${-prediction.daysUntilNext} day${prediction.daysUntilNext === -1 ? '' : 's'} late`}
-              {'\n'}
-              {shortDate(prediction.nextPeriod)}
-            </Body>
-          </Card>
-        ) : (
-          <Card tone="plum" style={{ flex: 1, justifyContent: 'center' }} onPress={() => router.push('/together')}>
-            <Eyebrow color={colors.plum}>Date idea</Eyebrow>
-            <Body style={{ color: colors.ink }} numberOfLines={4}>
-              {state.dateIdeas.find((d) => !d.done)?.text ?? 'Add a new date idea together'}
-            </Body>
-          </Card>
-        )}
+        <Card style={{ flex: 1, justifyContent: 'space-between' }} onPress={() => router.push('/connect')}>
+          <Ionicons name="mail" size={20} color={colors.rose} />
+          {latestNoteFromPartner ? (
+            <>
+              <Text style={styles.noteText} numberOfLines={4}>
+                “{latestNoteFromPartner.text}”
+              </Text>
+              <Body muted style={{ fontSize: 12 }}>{relativeTime(latestNoteFromPartner.createdAt)}</Body>
+            </>
+          ) : (
+            <Body muted style={{ fontSize: 14 }}>No notes yet. Leave one first.</Body>
+          )}
+        </Card>
       </Row>
 
       {state.partnerCycle ? <PartnerCycleCard name={names.partner} /> : null}
 
-      <Card>
-        <Eyebrow>Love notes</Eyebrow>
-        {latestNoteFromPartner ? (
-          <View style={styles.note}>
-            <Text style={styles.noteText}>“{latestNoteFromPartner.text}”</Text>
-            <Body muted style={{ fontSize: 12 }}>
-              {names.partner} · {relativeTime(latestNoteFromPartner.createdAt)}
-            </Body>
-          </View>
-        ) : (
-          <Body muted>Notes from {names.partner} will show up here.</Body>
-        )}
-        <Field value={note} onChangeText={setNote} placeholder={`Leave a note for ${names.partner}…`} />
-        <Button label="Send note" variant="secondary" onPress={sendNote} disabled={!note.trim()} />
-      </Card>
+      <SectionTitle>Activities</SectionTitle>
+      <View style={styles.grid}>
+        <ActivityTile
+          icon="chatbubbles"
+          color={colors.ember}
+          tint={colors.emberSoft}
+          title="Daily question"
+          subtitle={state.answers[today]?.me ? 'Answered' : 'New today'}
+          onPress={() => router.push('/connect')}
+        />
+        <ActivityTile
+          icon="camera"
+          color={colors.rose}
+          tint={colors.roseSoft}
+          title="Send a moment"
+          subtitle="Lands on their widget"
+          onPress={() => router.push('/moments')}
+        />
+        <ActivityTile
+          icon="heart"
+          color={colors.plum}
+          tint={colors.plumSoft}
+          title="Love note"
+          subtitle="Say something sweet"
+          onPress={() => router.push('/connect')}
+        />
+        {state.cycle.tracking && prediction ? (
+          <ActivityTile
+            icon="water"
+            color={colors.sky}
+            tint={colors.skySoft}
+            title={`Cycle day ${prediction.cycleDay}`}
+            subtitle={phaseCopy[prediction.phase].title}
+            onPress={() => router.push('/cycle')}
+          />
+        ) : null}
+        <ActivityTile
+          icon="sparkles"
+          color={colors.sageDeep}
+          tint={colors.sage}
+          title="Date idea"
+          subtitle={nextIdea ?? 'Add one together'}
+          onPress={() => router.push('/us')}
+        />
+        <ActivityTile
+          icon="calendar"
+          color={colors.flame}
+          tint={colors.flameSoft}
+          title={days !== null ? `${days.toLocaleString()} days` : 'Anniversary'}
+          subtitle={days !== null ? 'together' : 'Add it in settings'}
+          onPress={() => router.push(days !== null ? '/us' : '/settings')}
+        />
+      </View>
     </Screen>
+  );
+}
+
+const dayOf = (iso: string) => toKey(new Date(iso));
+
+function ActivityTile({
+  icon,
+  color,
+  tint,
+  title,
+  subtitle,
+  onPress,
+}: {
+  icon: IconName;
+  color: string;
+  tint: string;
+  title: string;
+  subtitle: string;
+  onPress: () => void;
+}) {
+  return (
+    <Pressable
+      onPress={() => {
+        tap();
+        onPress();
+      }}
+      style={({ pressed }) => [styles.tile, { backgroundColor: tint, transform: [{ scale: pressed ? 0.97 : 1 }] }]}
+    >
+      <View style={[styles.tileIcon, { backgroundColor: color }]}>
+        <Ionicons name={icon} size={20} color={colors.black} />
+      </View>
+      <Text style={styles.tileTitle} numberOfLines={1}>{title}</Text>
+      <Text style={styles.tileSubtitle} numberOfLines={2}>{subtitle}</Text>
+    </Pressable>
   );
 }
 
@@ -170,7 +259,7 @@ function PartnerCycleCard({ name }: { name: string }) {
       <Heading style={{ fontSize: 19 }}>
         Day {cycleDay} · {phaseCopy[phase].title}
       </Heading>
-      <Body style={{ color: colors.ink, fontSize: 14 }}>
+      <Body style={{ fontSize: 14 }}>
         {daysUntil > 0
           ? `Period expected in ${daysUntil} day${daysUntil === 1 ? '' : 's'} (${shortDate(c.nextPeriod)}).`
           : daysUntil === 0
@@ -198,11 +287,45 @@ function MoodTile({ who, name, onPress }: { who: Person; name: string; onPress?:
 }
 
 const styles = StyleSheet.create({
-  coupleNames: { fontFamily: fonts.bodyBold, fontSize: 15, color: colors.white, marginTop: space(2) },
-  daysNumber: { fontFamily: fonts.display, fontSize: 56, color: colors.white, lineHeight: 64 },
-  daysLabel: { fontFamily: fonts.displayItalic, fontSize: 17, color: colors.white, opacity: 0.9 },
+  streakPill: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: radius.pill,
+    paddingHorizontal: space(3),
+    height: 40,
+  },
+  streakText: { fontFamily: fonts.bodyBold, fontSize: 15, color: colors.ink },
+  iconButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    backgroundColor: colors.surface,
+    borderWidth: 1,
+    borderColor: colors.line,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  heroTitle: { fontFamily: fonts.display, fontSize: 21, color: colors.ink, letterSpacing: -0.4 },
+  checkRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space(3),
+    backgroundColor: colors.surfaceRaised,
+    borderRadius: radius.md,
+    paddingHorizontal: space(3.5),
+    paddingVertical: space(3),
+  },
+  checkLabel: { flex: 1, fontFamily: fonts.bodyMedium, fontSize: 15, color: colors.ink },
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: space(2) },
   moodLabel: { fontFamily: fonts.bodyBold, fontSize: 14, color: colors.ink, textAlign: 'center' },
-  note: { backgroundColor: colors.flameSoft, borderRadius: 16, padding: space(4), gap: space(1) },
-  noteText: { fontFamily: fonts.displayItalic, fontSize: 17, lineHeight: 24, color: colors.ink },
+  noteText: { fontFamily: fonts.bodyMedium, fontSize: 15, lineHeight: 21, color: colors.ink },
+  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: space(3) },
+  tile: { width: '47.8%', flexGrow: 1, borderRadius: radius.lg, padding: space(4), gap: space(1.5), minHeight: 128 },
+  tileIcon: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginBottom: space(1) },
+  tileTitle: { fontFamily: fonts.bodyBold, fontSize: 16, color: colors.ink },
+  tileSubtitle: { fontFamily: fonts.body, fontSize: 13, lineHeight: 18, color: colors.inkSoft },
 });

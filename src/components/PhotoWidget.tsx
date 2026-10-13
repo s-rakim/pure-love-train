@@ -5,7 +5,7 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import { relativeTime } from '../lib/dates';
 import type { Moment } from '../lib/store';
-import { colors, fonts, radius, shadow } from '../theme';
+import { colors, fonts, radius } from '../theme';
 
 /**
  * The square photo tile that mirrors the home screen widget: the newest
@@ -26,7 +26,7 @@ export function PhotoWidget({
         <>
           <Image source={{ uri: moment.uri }} style={StyleSheet.absoluteFill} contentFit="cover" transition={200} />
           <LinearGradient
-            colors={['transparent', 'rgba(42,29,26,0.65)']}
+            colors={['transparent', 'rgba(0,0,0,0.7)']}
             style={[StyleSheet.absoluteFill, { top: '45%' }]}
           />
           {moment.caption ? (
@@ -53,9 +53,8 @@ const styles = StyleSheet.create({
     borderRadius: radius.xl,
     overflow: 'hidden',
     backgroundColor: colors.flameSoft,
-    borderWidth: 4,
-    borderColor: colors.surface,
-    ...shadow,
+    borderWidth: 3,
+    borderColor: colors.surfaceRaised,
   },
   captionPill: {
     position: 'absolute',
@@ -67,7 +66,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10,
     paddingVertical: 4,
   },
-  caption: { fontFamily: fonts.bodyMedium, fontSize: 12, color: colors.ink },
+  caption: { fontFamily: fonts.bodyMedium, fontSize: 12, color: colors.black },
   meta: {
     position: 'absolute',
     left: 12,

@@ -3,11 +3,11 @@
     "name": "Pure Love",
     "slug": "pure-love",
     "scheme": "purelove",
-    "version": "1.0.0",
+    "version": "1.2.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "light",
-    "backgroundColor": "#FBF3EA",
+    "userInterfaceStyle": "dark",
+    "backgroundColor": "#0B0A09",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.purelove.app",
@@ -20,7 +20,7 @@
     "android": {
       "package": "com.purelove.app",
       "adaptiveIcon": {
-        "backgroundColor": "#FBF3EA",
+        "backgroundColor": "#0B0A09",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
