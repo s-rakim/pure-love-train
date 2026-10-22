@@ -3,6 +3,7 @@ import { Platform } from 'react-native';
 
 import type { State, SyncState } from './store';
 import { applyRecords, fingerprint, pendingChanges, recordKey, type PulledRecord } from './syncCore';
+import { refreshMomentWidget } from './widget';
 
 type Update = (fn: (s: State) => State) => void;
 
@@ -200,6 +201,8 @@ async function runSync(getState: () => State, update: Update) {
     }
 
     update((s) => (s.sync ? { ...s, sync: { ...s.sync, lastSyncAt: new Date().toISOString(), error: photoError } } : s));
+    // A new moment may have arrived from either side; refresh the home screen widget.
+    void refreshMomentWidget();
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     update((s) => (s.sync ? { ...s, sync: { ...s.sync, error: message } } : s));

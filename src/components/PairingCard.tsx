@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { ActivityIndicator, Alert, Platform, StyleSheet, Text, View } from 'react-native';
 
 import { withDemoPartner } from '../lib/demo';
@@ -6,12 +6,15 @@ import { relativeTime } from '../lib/dates';
 import { useNames } from '../lib/hooks';
 import { useStore } from '../lib/store';
 import { createSpace, joinSpace, normalizeServerUrl, syncOnce } from '../lib/sync';
-import { colors, fonts, radius, space } from '../theme';
+import { useColors, type Colors } from '../theme/theme';
+import { fonts, radius, space } from '../theme';
 import { Body, Button, Card, Eyebrow, Field, Row } from './ui';
 
 /** Connects this phone to the couple's sync server and shows how pairing is going. */
 export function PairingCard() {
   const { state, update } = useStore();
+  const colors = useColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const names = useNames();
   const [serverUrl, setServerUrl] = useState(state.sync?.serverUrl ?? '');
   const [code, setCode] = useState('');
@@ -65,7 +68,7 @@ export function PairingCard() {
       <Card>
         <Eyebrow>Sync with {names.partner}</Eyebrow>
         <Body>
-          Enter the address of your Pure Love server, like the Tailscale address of the computer running it. One of
+          Enter the address of your You & I server, like the Tailscale address of the computer running it. One of
           you creates a space, the other joins with the code.
         </Body>
         <Field
@@ -142,14 +145,15 @@ export function PairingCard() {
   );
 }
 
-const styles = StyleSheet.create({
-  code: {
-    alignSelf: 'center',
-    backgroundColor: colors.flameSoft,
-    borderRadius: radius.md,
-    paddingHorizontal: space(6),
-    paddingVertical: space(3),
-  },
-  codeText: { fontFamily: fonts.display, fontSize: 30, letterSpacing: 6, color: colors.flameDeep },
-  error: { fontFamily: fonts.body, fontSize: 13, lineHeight: 18, color: colors.flameDeep },
-});
+const createStyles = (colors: Colors) =>
+  StyleSheet.create({
+    code: {
+      alignSelf: 'center',
+      backgroundColor: colors.flameSoft,
+      borderRadius: radius.md,
+      paddingHorizontal: space(6),
+      paddingVertical: space(3),
+    },
+    codeText: { fontFamily: fonts.display, fontSize: 30, letterSpacing: 6, color: colors.flameDeep },
+    error: { fontFamily: fonts.body, fontSize: 13, lineHeight: 18, color: colors.flameDeep },
+  });

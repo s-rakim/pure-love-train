@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { useMemo, useState } from 'react';
+import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { router } from 'expo-router';
 
@@ -8,8 +8,10 @@ import { Flame } from '../../components/Flame';
 import { Avatar, Body, Button, Card, Eyebrow, Field, Row, Screen, SectionTitle, Title } from '../../components/ui';
 import { addDays, diffDays, fromKey, shortDate, toKey, type DateKey } from '../../lib/dates';
 import { useDaysTogether, useNames, useStreak, useToday } from '../../lib/hooks';
-import { newId, useStore } from '../../lib/store';
-import { colors, fonts, radius, space } from '../../theme';
+import { deletePhoto, persistPhoto, pickPhoto } from '../../lib/moments';
+import { newId, useStore, type Person } from '../../lib/store';
+import { useColors, type Colors } from '../../theme/theme';
+import { fonts, radius, space } from '../../theme';
 
 type Milestone = { label: string; date: DateKey; daysAway: number };
 
@@ -52,12 +54,15 @@ function together(since: DateKey, today: DateKey) {
 /** The couple's dashboard: streak, time together, what's coming up and plans. */
 export default function Us() {
   const { state, update } = useStore();
+  const colors = useColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const names = useNames();
   const today = useToday();
   const days = useDaysTogether();
   const streak = useStreak();
   const [idea, setIdea] = useState('');
 
+  const avatars = state.avatars ?? { me: null, partner: null };
   const milestones = upcomingMilestones(state.togetherSince, today);
   const span = state.togetherSince ? together(state.togetherSince, today) : null;
   const paired = !!state.sync && !state.sync.pairCode;
@@ -78,14 +83,62 @@ export default function Us() {
   const removeIdea = (id: string) =>
     update((s) => ({ ...s, dateIdeas: s.dateIdeas.filter((d) => d.id !== id) }));
 
+  /** Swap the small round avatar for a photo. Photos stay small and round no matter the source image. */
+  const setAvatar = async (person: Person, source: 'camera' | 'library') => {
+    try {
+      const picked = await pickPhoto(source);
+      if (!picked) return;
+      const uri = await persistPhoto(picked, `avatar-${person}-${newId()}`);
+      const old = (state.avatars ?? {})[person];
+      if (old) deletePhoto(old);
+      update((s) => ({ ...s, avatars: { me: null, partner: null, ...s.avatars, [person]: uri } }));
+    } catch (err) {
+      Alert.alert('Could not set the photo', err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const clearAvatar = (person: Person) => {
+    const doIt = () => {
+      const old = (state.avatars ?? {})[person];
+      if (old) deletePhoto(old);
+      update((s) => ({ ...s, avatars: { me: null, partner: null, ...s.avatars, [person]: null } }));
+    };
+    if (Platform.OS === 'web') return doIt();
+    Alert.alert('Remove the photo?', 'The initial comes back instead.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Remove', style: 'destructive', onPress: doIt },
+    ]);
+  };
+
+  const avatarMenu = (person: Person) => {
+    const who = person === 'me' ? names.me : names.partner;
+    if (Platform.OS === 'web') {
+      void setAvatar(person, 'library');
+      return;
+    }
+    const buttons = [
+      { text: 'Take photo', onPress: () => void setAvatar(person, 'camera') },
+      { text: 'Choose photo', onPress: () => void setAvatar(person, 'library') },
+      ...(avatars[person]
+        ? [{ text: 'Remove photo', style: 'destructive' as const, onPress: () => clearAvatar(person) }]
+        : []),
+      { text: 'Cancel', style: 'cancel' as const },
+    ];
+    Alert.alert(`${who}'s picture`, 'Keep it small and round, like the initial it replaces.', buttons);
+  };
+
   return (
     <Screen>
       <Row style={{ justifyContent: 'space-between' }}>
         <Title>Us</Title>
         <View style={{ flexDirection: 'row' }}>
-          <Avatar name={names.me} size={40} tone={colors.flame} />
+          <Pressable accessibilityLabel="Change your photo" onPress={() => avatarMenu('me')}>
+            <Avatar name={names.me} size={40} tone={colors.flame} uri={avatars.me} />
+          </Pressable>
           <View style={{ marginLeft: -10 }}>
-            <Avatar name={names.partner} size={40} tone={colors.plum} />
+            <Pressable accessibilityLabel={`Change ${names.partner}'s photo`} onPress={() => avatarMenu('partner')}>
+              <Avatar name={names.partner} size={40} tone={colors.plum} uri={avatars.partner} />
+            </Pressable>
           </View>
         </View>
       </Row>
@@ -204,34 +257,35 @@ export default function Us() {
   );
 }
 
-const styles = StyleSheet.create({
-  pairTitle: { fontFamily: fonts.bodyBold, fontSize: 18, color: colors.white },
-  pairBody: { fontFamily: fonts.body, fontSize: 14, lineHeight: 20, color: colors.white, opacity: 0.9 },
-  bigNumber: { fontFamily: fonts.display, fontSize: 48, lineHeight: 52, color: colors.ink, marginTop: -space(2) },
-  bigLabel: { fontFamily: fonts.bodyMedium, fontSize: 15, color: colors.inkSoft, marginTop: -space(2) },
-  weekday: { fontFamily: fonts.bodyBold, fontSize: 12, color: colors.muted },
-  dot: {
-    width: 30,
-    height: 30,
-    borderRadius: 15,
-    borderWidth: 1.5,
-    borderColor: colors.line,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  statNumber: { fontFamily: fonts.display, fontSize: 30, color: colors.ink, letterSpacing: -0.6 },
-  countdown: { flexDirection: 'row', alignItems: 'center', gap: space(3), paddingVertical: space(4) },
-  countIcon: {
-    width: 40,
-    height: 40,
-    borderRadius: radius.sm,
-    backgroundColor: colors.flameSoft,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  countTitle: { fontFamily: fonts.bodyBold, fontSize: 15, color: colors.ink },
-  countDays: { fontFamily: fonts.bodyBold, fontSize: 17, color: colors.flame },
-  idea: { paddingVertical: space(1) },
-  ideaText: { flex: 1, fontFamily: fonts.body, fontSize: 15, color: colors.ink },
-  ideaDone: { color: colors.muted, textDecorationLine: 'line-through' },
-});
+const createStyles = (colors: Colors) =>
+  StyleSheet.create({
+    pairTitle: { fontFamily: fonts.bodyBold, fontSize: 18, color: colors.white },
+    pairBody: { fontFamily: fonts.body, fontSize: 14, lineHeight: 20, color: colors.white, opacity: 0.9 },
+    bigNumber: { fontFamily: fonts.display, fontSize: 48, lineHeight: 52, color: colors.ink, marginTop: -space(2) },
+    bigLabel: { fontFamily: fonts.bodyMedium, fontSize: 15, color: colors.inkSoft, marginTop: -space(2) },
+    weekday: { fontFamily: fonts.bodyBold, fontSize: 12, color: colors.muted },
+    dot: {
+      width: 30,
+      height: 30,
+      borderRadius: 15,
+      borderWidth: 1.5,
+      borderColor: colors.line,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    statNumber: { fontFamily: fonts.display, fontSize: 30, color: colors.ink, letterSpacing: -0.6 },
+    countdown: { flexDirection: 'row', alignItems: 'center', gap: space(3), paddingVertical: space(4) },
+    countIcon: {
+      width: 40,
+      height: 40,
+      borderRadius: radius.sm,
+      backgroundColor: colors.flameSoft,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    countTitle: { fontFamily: fonts.bodyBold, fontSize: 15, color: colors.ink },
+    countDays: { fontFamily: fonts.bodyBold, fontSize: 17, color: colors.flame },
+    idea: { paddingVertical: space(1) },
+    ideaText: { flex: 1, fontFamily: fonts.body, fontSize: 15, color: colors.ink },
+    ideaDone: { color: colors.muted, textDecorationLine: 'line-through' },
+  });

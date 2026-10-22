@@ -1,11 +1,13 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { LinearGradient } from 'expo-linear-gradient';
+import { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { relativeTime } from '../lib/dates';
 import type { Moment } from '../lib/store';
-import { colors, fonts, radius } from '../theme';
+import { useColors, type Colors } from '../theme/theme';
+import { fonts, radius } from '../theme';
 
 /**
  * The square photo tile that mirrors the home screen widget: the newest
@@ -20,6 +22,8 @@ export function PhotoWidget({
   senderName: string;
   size?: number;
 }) {
+  const colors = useColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
     <View style={[styles.frame, { width: size, height: size }]}>
       {moment ? (
@@ -48,35 +52,36 @@ export function PhotoWidget({
   );
 }
 
-const styles = StyleSheet.create({
-  frame: {
-    borderRadius: radius.xl,
-    overflow: 'hidden',
-    backgroundColor: colors.flameSoft,
-    borderWidth: 3,
-    borderColor: colors.surfaceRaised,
-  },
-  captionPill: {
-    position: 'absolute',
-    alignSelf: 'center',
-    bottom: 30,
-    maxWidth: '86%',
-    backgroundColor: 'rgba(255,255,255,0.92)',
-    borderRadius: radius.pill,
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-  },
-  caption: { fontFamily: fonts.bodyMedium, fontSize: 12, color: colors.black },
-  meta: {
-    position: 'absolute',
-    left: 12,
-    right: 12,
-    bottom: 9,
-    fontFamily: fonts.bodyBold,
-    fontSize: 11,
-    color: colors.white,
-    textAlign: 'center',
-  },
-  empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 16, gap: 8 },
-  emptyText: { fontFamily: fonts.bodyMedium, fontSize: 12, color: colors.flameDeep, textAlign: 'center' },
-});
+const createStyles = (colors: Colors) =>
+  StyleSheet.create({
+    frame: {
+      borderRadius: radius.xl,
+      overflow: 'hidden',
+      backgroundColor: colors.flameSoft,
+      borderWidth: 3,
+      borderColor: colors.surfaceRaised,
+    },
+    captionPill: {
+      position: 'absolute',
+      alignSelf: 'center',
+      bottom: 30,
+      maxWidth: '86%',
+      backgroundColor: 'rgba(255,255,255,0.92)',
+      borderRadius: radius.pill,
+      paddingHorizontal: 10,
+      paddingVertical: 4,
+    },
+    caption: { fontFamily: fonts.bodyMedium, fontSize: 12, color: colors.black },
+    meta: {
+      position: 'absolute',
+      left: 12,
+      right: 12,
+      bottom: 9,
+      fontFamily: fonts.bodyBold,
+      fontSize: 11,
+      color: colors.white,
+      textAlign: 'center',
+    },
+    empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 16, gap: 8 },
+    emptyText: { fontFamily: fonts.bodyMedium, fontSize: 12, color: colors.flameDeep, textAlign: 'center' },
+  });

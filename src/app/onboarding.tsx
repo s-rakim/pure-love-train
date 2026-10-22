@@ -1,15 +1,18 @@
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { Flame } from '../components/Flame';
 import { Body, Button, Chip, Field, Screen, Title } from '../components/ui';
 import { isValidKey } from '../lib/dates';
 import { useStore } from '../lib/store';
-import { colors, fonts, space } from '../theme';
+import { useColors, type Colors } from '../theme/theme';
+import { fonts, space } from '../theme';
 
 export default function Onboarding() {
   const { state, update } = useStore();
+  const colors = useColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const [me, setMe] = useState(state.names.me);
   const [partner, setPartner] = useState(state.names.partner);
   const [since, setSince] = useState(state.togetherSince ?? '');
@@ -75,7 +78,8 @@ export default function Onboarding() {
   );
 }
 
-const styles = StyleSheet.create({
-  label: { fontFamily: fonts.bodyBold, fontSize: 13, color: colors.inkSoft },
-  error: { fontFamily: fonts.body, fontSize: 13, color: colors.flameDeep },
-});
+const createStyles = (colors: Colors) =>
+  StyleSheet.create({
+    label: { fontFamily: fonts.bodyBold, fontSize: 13, color: colors.inkSoft },
+    error: { fontFamily: fonts.body, fontSize: 13, color: colors.flameDeep },
+  });

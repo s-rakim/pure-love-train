@@ -7,9 +7,11 @@ import { StatusBar } from 'expo-status-bar';
 import { View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { PingBanner } from '../components/PingBanner';
 import { SyncAgent } from '../components/SyncAgent';
 import { StoreProvider, useStore } from '../lib/store';
-import { colors, fonts } from '../theme';
+import { fonts } from '../theme';
+import { ThemeProvider, useColors, useTheme } from '../theme/theme';
 
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
@@ -21,15 +23,31 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <StoreProvider>
-        <StatusBar style="light" />
-        {fontsLoaded ? <Navigator /> : <View style={{ flex: 1, backgroundColor: colors.background }} />}
+        <ThemeProvider>
+          <AppShell fontsLoaded={fontsLoaded} />
+        </ThemeProvider>
       </StoreProvider>
     </SafeAreaProvider>
   );
 }
 
+function AppShell({ fontsLoaded }: { fontsLoaded: boolean }) {
+  const { mode } = useTheme();
+  const colors = useColors();
+  const splash = { flex: 1, backgroundColor: colors.background };
+
+  return (
+    <>
+      <StatusBar style={mode === 'dark' ? 'light' : 'dark'} />
+      {fontsLoaded ? <Navigator /> : <View style={splash} />}
+      <PingBanner />
+    </>
+  );
+}
+
 function Navigator() {
   const { ready } = useStore();
+  const colors = useColors();
   if (!ready) return <View style={{ flex: 1, backgroundColor: colors.background }} />;
   return (
     <>

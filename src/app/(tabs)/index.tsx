@@ -1,16 +1,17 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, type Href } from 'expo-router';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { Flame } from '../../components/Flame';
 import { PhotoWidget } from '../../components/PhotoWidget';
-import { Body, Card, Chip, Eyebrow, Heading, Row, Screen, SectionTitle, Title, tap } from '../../components/ui';
+import { Body, Button, Card, Chip, Eyebrow, Field, Heading, Row, Screen, SectionTitle, Title, tap } from '../../components/ui';
 import { phaseCopy, sharedCycleOn } from '../../lib/cycle';
 import { relativeTime, shortDate, toKey } from '../../lib/dates';
 import { useCycle, useDaysTogether, useNames, useStreak, useToday } from '../../lib/hooks';
-import { useStore, type Person } from '../../lib/store';
-import { colors, fonts, radius, space } from '../../theme';
+import { newId, useStore, type Person } from '../../lib/store';
+import { useColors, type Colors } from '../../theme/theme';
+import { fonts, radius, space } from '../../theme';
 
 const MOODS = [
   { emoji: '🥰', label: 'Loved' },
@@ -32,15 +33,20 @@ type IconName = keyof typeof Ionicons.glyphMap;
 
 export default function Home() {
   const { state, update } = useStore();
+  const colors = useColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const names = useNames();
   const today = useToday();
   const days = useDaysTogether();
   const streak = useStreak();
   const { prediction } = useCycle();
   const [pickingMood, setPickingMood] = useState(false);
+  const [pingSent, setPingSent] = useState(false);
+  const [reminderDraft, setReminderDraft] = useState('');
 
   const latestFromPartner = state.moments.find((m) => m.from === 'partner');
   const latestNoteFromPartner = state.notes.find((n) => n.from === 'partner');
+  const doneReminders = state.reminderLog[today] ?? [];
   const checklist: { label: string; done: boolean; href: Href }[] = [
     { label: "Answer today's question", done: !!state.answers[today]?.me, href: '/connect' },
     {
@@ -57,6 +63,41 @@ export default function Home() {
   };
 
   const nextIdea = state.dateIdeas.find((d) => !d.done)?.text;
+
+  /** One tap tells the partner they're on your mind; sync carries it to their phone. */
+  const sendPing = () => {
+    tap();
+    update((s) => ({
+      ...s,
+      pings: [{ id: newId(), from: 'me', createdAt: new Date().toISOString() }, ...s.pings].slice(0, 20),
+    }));
+    setPingSent(true);
+    setTimeout(() => setPingSent(false), 2000);
+  };
+
+  const addReminder = () => {
+    const text = reminderDraft.trim();
+    if (!text) return;
+    update((s) => ({ ...s, reminders: [...s.reminders, { id: newId(), text }] }));
+    setReminderDraft('');
+  };
+
+  const toggleReminder = (id: string) =>
+    update((s) => {
+      const day = s.reminderLog[today] ?? [];
+      const reminderLog = {
+        ...s.reminderLog,
+        [today]: day.includes(id) ? day.filter((x) => x !== id) : [...day, id],
+      };
+      return { ...s, reminderLog };
+    });
+
+  const removeReminder = (id: string) =>
+    update((s) => ({
+      ...s,
+      reminders: s.reminders.filter((r) => r.id !== id),
+      reminderLog: Object.fromEntries(Object.entries(s.reminderLog).map(([d, ids]) => [d, ids.filter((x) => x !== id)])),
+    }));
 
   return (
     <Screen>
@@ -115,6 +156,26 @@ export default function Home() {
         </View>
       </Card>
 
+      <Card tone="rose" style={{ gap: space(3) }}>
+        <Row style={{ gap: space(3) }}>
+          <View style={[styles.pingIcon, { backgroundColor: colors.rose }]}>
+            <Ionicons name="heart" size={22} color={colors.white} />
+          </View>
+          <View style={{ flex: 1, gap: 2 }}>
+            <Text style={styles.pingTitle}>Thinking of {names.partner}?</Text>
+            <Body style={{ fontSize: 13, lineHeight: 18 }}>
+              One tap sends a little heart to their phone.
+            </Body>
+          </View>
+        </Row>
+        <Button
+          label={pingSent ? 'Sent 💭' : `I'm thinking of you`}
+          onPress={sendPing}
+          disabled={pingSent}
+          icon={<Ionicons name="heart" size={18} color={colors.white} />}
+        />
+      </Card>
+
       <Row style={{ alignItems: 'stretch' }}>
         <MoodTile who="me" name={names.me} onPress={() => setPickingMood((v) => !v)} />
         <MoodTile who="partner" name={names.partner} />
@@ -156,6 +217,48 @@ export default function Home() {
       </Row>
 
       {state.partnerCycle ? <PartnerCycleCard name={names.partner} /> : null}
+
+      <SectionTitle>Daily reminders</SectionTitle>
+      <Card>
+        {state.reminders.length === 0 ? (
+          <Body muted>Add the little habits you want to remember each day.</Body>
+        ) : (
+          state.reminders.map((r) => {
+            const done = doneReminders.includes(r.id);
+            return (
+              <Row key={r.id} style={styles.reminderRow}>
+                <Pressable
+                  accessibilityRole="checkbox"
+                  accessibilityState={{ checked: done }}
+                  hitSlop={8}
+                  onPress={() => toggleReminder(r.id)}
+                >
+                  <Ionicons
+                    name={done ? 'checkmark-circle' : 'ellipse-outline'}
+                    size={24}
+                    color={done ? colors.sageDeep : colors.muted}
+                  />
+                </Pressable>
+                <Text style={[styles.reminderText, done && styles.reminderDone]}>{r.text}</Text>
+                <Pressable accessibilityLabel={`Remove ${r.text}`} hitSlop={8} onPress={() => removeReminder(r.id)}>
+                  <Ionicons name="close" size={18} color={colors.muted} />
+                </Pressable>
+              </Row>
+            );
+          })
+        )}
+        <Row>
+          <View style={{ flex: 1 }}>
+            <Field
+              value={reminderDraft}
+              onChangeText={setReminderDraft}
+              placeholder="Add a reminder…"
+              onSubmitEditing={addReminder}
+            />
+          </View>
+          <Button label="Add" variant="secondary" onPress={addReminder} disabled={!reminderDraft.trim()} />
+        </Row>
+      </Card>
 
       <SectionTitle>Activities</SectionTitle>
       <View style={styles.grid}>
@@ -231,6 +334,8 @@ function ActivityTile({
   subtitle: string;
   onPress: () => void;
 }) {
+  const colors = useColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
     <Pressable
       onPress={() => {
@@ -250,6 +355,7 @@ function ActivityTile({
 
 function PartnerCycleCard({ name }: { name: string }) {
   const { state } = useStore();
+  const colors = useColors();
   const today = useToday();
   const c = state.partnerCycle!;
   const { cycleDay, phase, daysUntilNext: daysUntil } = sharedCycleOn(c, today);
@@ -273,6 +379,8 @@ function PartnerCycleCard({ name }: { name: string }) {
 
 function MoodTile({ who, name, onPress }: { who: Person; name: string; onPress?: () => void }) {
   const { state } = useStore();
+  const colors = useColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const mood = state.moods[who];
   return (
     <Card style={{ flex: 1, alignItems: 'center', gap: space(1) }} onPress={onPress}>
@@ -286,46 +394,52 @@ function MoodTile({ who, name, onPress }: { who: Person; name: string; onPress?:
   );
 }
 
-const styles = StyleSheet.create({
-  streakPill: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 4,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.line,
-    borderRadius: radius.pill,
-    paddingHorizontal: space(3),
-    height: 40,
-  },
-  streakText: { fontFamily: fonts.bodyBold, fontSize: 15, color: colors.ink },
-  iconButton: {
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: colors.surface,
-    borderWidth: 1,
-    borderColor: colors.line,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  heroTitle: { fontFamily: fonts.display, fontSize: 21, color: colors.ink, letterSpacing: -0.4 },
-  checkRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: space(3),
-    backgroundColor: colors.surfaceRaised,
-    borderRadius: radius.md,
-    paddingHorizontal: space(3.5),
-    paddingVertical: space(3),
-  },
-  checkLabel: { flex: 1, fontFamily: fonts.bodyMedium, fontSize: 15, color: colors.ink },
-  wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: space(2) },
-  moodLabel: { fontFamily: fonts.bodyBold, fontSize: 14, color: colors.ink, textAlign: 'center' },
-  noteText: { fontFamily: fonts.bodyMedium, fontSize: 15, lineHeight: 21, color: colors.ink },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: space(3) },
-  tile: { width: '47.8%', flexGrow: 1, borderRadius: radius.lg, padding: space(4), gap: space(1.5), minHeight: 128 },
-  tileIcon: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginBottom: space(1) },
-  tileTitle: { fontFamily: fonts.bodyBold, fontSize: 16, color: colors.ink },
-  tileSubtitle: { fontFamily: fonts.body, fontSize: 13, lineHeight: 18, color: colors.inkSoft },
-});
+const createStyles = (colors: Colors) =>
+  StyleSheet.create({
+    streakPill: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: 4,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.line,
+      borderRadius: radius.pill,
+      paddingHorizontal: space(3),
+      height: 40,
+    },
+    streakText: { fontFamily: fonts.bodyBold, fontSize: 15, color: colors.ink },
+    iconButton: {
+      width: 40,
+      height: 40,
+      borderRadius: 20,
+      backgroundColor: colors.surface,
+      borderWidth: 1,
+      borderColor: colors.line,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    heroTitle: { fontFamily: fonts.display, fontSize: 21, color: colors.ink, letterSpacing: -0.4 },
+    checkRow: {
+      flexDirection: 'row',
+      alignItems: 'center',
+      gap: space(3),
+      backgroundColor: colors.surfaceRaised,
+      borderRadius: radius.md,
+      paddingHorizontal: space(3.5),
+      paddingVertical: space(3),
+    },
+    checkLabel: { flex: 1, fontFamily: fonts.bodyMedium, fontSize: 15, color: colors.ink },
+    wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: space(2) },
+    moodLabel: { fontFamily: fonts.bodyBold, fontSize: 14, color: colors.ink, textAlign: 'center' },
+    noteText: { fontFamily: fonts.bodyMedium, fontSize: 15, lineHeight: 21, color: colors.ink },
+    pingIcon: { width: 44, height: 44, borderRadius: 14, alignItems: 'center', justifyContent: 'center' },
+    pingTitle: { fontFamily: fonts.display, fontSize: 19, color: colors.ink, letterSpacing: -0.3 },
+    grid: { flexDirection: 'row', flexWrap: 'wrap', gap: space(3) },
+    tile: { width: '47.8%', flexGrow: 1, borderRadius: radius.lg, padding: space(4), gap: space(1.5), minHeight: 128 },
+    tileIcon: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginBottom: space(1) },
+    tileTitle: { fontFamily: fonts.bodyBold, fontSize: 16, color: colors.ink },
+    tileSubtitle: { fontFamily: fonts.body, fontSize: 13, lineHeight: 18, color: colors.inkSoft },
+    reminderRow: { gap: space(2) },
+    reminderText: { flex: 1, fontFamily: fonts.bodyMedium, fontSize: 15, color: colors.ink },
+    reminderDone: { color: colors.muted, textDecorationLine: 'line-through' },
+  });

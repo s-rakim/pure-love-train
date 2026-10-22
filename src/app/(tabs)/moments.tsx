@@ -1,6 +1,6 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { PhotoWidget } from '../../components/PhotoWidget';
@@ -9,10 +9,14 @@ import { relativeTime } from '../../lib/dates';
 import { useNames } from '../../lib/hooks';
 import { deletePhoto, persistPhoto, pickPhoto } from '../../lib/moments';
 import { newId, useStore, type Moment } from '../../lib/store';
-import { colors, fonts, radius, space } from '../../theme';
+import { refreshMomentWidget } from '../../lib/widget';
+import { useColors, type Colors } from '../../theme/theme';
+import { fonts, radius, space } from '../../theme';
 
 export default function Moments() {
   const { state, update } = useStore();
+  const colors = useColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const names = useNames();
   const [draftUri, setDraftUri] = useState<string | null>(null);
   const [caption, setCaption] = useState('');
@@ -40,6 +44,7 @@ export default function Moments() {
       update((s) => ({ ...s, moments: [moment, ...s.moments] }));
       setDraftUri(null);
       setCaption('');
+      void refreshMomentWidget();
     } catch (err) {
       Alert.alert('Could not save the photo', err instanceof Error ? err.message : String(err));
     } finally {
@@ -51,6 +56,7 @@ export default function Moments() {
     const doRemove = () => {
       deletePhoto(moment.uri);
       update((s) => ({ ...s, moments: s.moments.filter((m) => m.id !== moment.id) }));
+      void refreshMomentWidget();
     };
     if (Platform.OS === 'web') return doRemove();
     Alert.alert('Delete this moment?', undefined, [
@@ -134,24 +140,25 @@ export default function Moments() {
   );
 }
 
-const styles = StyleSheet.create({
-  draft: { width: '100%', aspectRatio: 1, borderRadius: radius.md },
-  grid: { flexDirection: 'row', flexWrap: 'wrap', gap: space(2) },
-  tile: {
-    width: '31.8%',
-    aspectRatio: 1,
-    borderRadius: radius.md,
-    overflow: 'hidden',
-    backgroundColor: colors.flameSoft,
-  },
-  tileMeta: {
-    position: 'absolute',
-    left: 0,
-    right: 0,
-    bottom: 0,
-    backgroundColor: 'rgba(42,29,26,0.45)',
-    paddingHorizontal: 6,
-    paddingVertical: 3,
-  },
-  tileText: { fontFamily: fonts.bodyMedium, fontSize: 10, color: colors.white },
-});
+const createStyles = (colors: Colors) =>
+  StyleSheet.create({
+    draft: { width: '100%', aspectRatio: 1, borderRadius: radius.md },
+    grid: { flexDirection: 'row', flexWrap: 'wrap', gap: space(2) },
+    tile: {
+      width: '31.8%',
+      aspectRatio: 1,
+      borderRadius: radius.md,
+      overflow: 'hidden',
+      backgroundColor: colors.flameSoft,
+    },
+    tileMeta: {
+      position: 'absolute',
+      left: 0,
+      right: 0,
+      bottom: 0,
+      backgroundColor: 'rgba(42,29,26,0.45)',
+      paddingHorizontal: 6,
+      paddingVertical: 3,
+    },
+    tileText: { fontFamily: fonts.bodyMedium, fontSize: 10, color: colors.white },
+  });

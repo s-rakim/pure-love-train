@@ -1,16 +1,20 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
 
 import { PairingCard } from '../components/PairingCard';
 import { Body, Button, Card, Chip, Eyebrow, Field, Row, Screen } from '../components/ui';
 import { isValidKey } from '../lib/dates';
 import { useStore } from '../lib/store';
-import { colors, fonts, radius, space } from '../theme';
+import { useColors, useTheme, type Colors } from '../theme/theme';
+import { fonts, space } from '../theme';
 
 export default function Settings() {
   const { state, update, reset } = useStore();
+  const colors = useColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
+  const { mode, setMode } = useTheme();
   const [me, setMe] = useState(state.names.me);
   const [partner, setPartner] = useState(state.names.partner);
   const [since, setSince] = useState(state.togetherSince ?? '');
@@ -47,6 +51,17 @@ export default function Settings() {
 
   return (
     <Screen edges={[]} style={{ paddingTop: space(2) }}>
+      <Card>
+        <Eyebrow>Appearance</Eyebrow>
+        <Row>
+          <Chip label="🕯 Dark" selected={mode === 'dark'} onPress={() => setMode('dark')} />
+          <Chip label="☀️ Light" selected={mode === 'light'} onPress={() => setMode('light')} />
+        </Row>
+        <Body muted style={{ fontSize: 13 }}>
+          Light mode keeps the flame accents but swaps the candlelit blacks for warm paper.
+        </Body>
+      </Card>
+
       <Card>
         <Eyebrow>You two</Eyebrow>
         <Field label="Your name" value={me} onChangeText={setMe} autoCapitalize="words" />
@@ -100,6 +115,8 @@ export default function Settings() {
 }
 
 function Stepper({ label, value, onChange }: { label: string; value: number; onChange: (delta: number) => void }) {
+  const colors = useColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
     <Row style={{ justifyContent: 'space-between' }}>
       <Body style={{ color: colors.ink }}>{label}</Body>
@@ -116,14 +133,15 @@ function Stepper({ label, value, onChange }: { label: string; value: number; onC
   );
 }
 
-const styles = StyleSheet.create({
-  step: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
-    backgroundColor: colors.flameSoft,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  stepValue: { fontFamily: fonts.bodyBold, fontSize: 15, color: colors.ink, minWidth: 64, textAlign: 'center' },
-});
+const createStyles = (colors: Colors) =>
+  StyleSheet.create({
+    step: {
+      width: 34,
+      height: 34,
+      borderRadius: 17,
+      backgroundColor: colors.flameSoft,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    stepValue: { fontFamily: fonts.bodyBold, fontSize: 15, color: colors.ink, minWidth: 64, textAlign: 'center' },
+  });

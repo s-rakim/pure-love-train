@@ -1,10 +1,11 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { Pressable, StyleSheet, Text, View } from 'react-native';
 
 import type { DayKind } from '../lib/cycle';
 import { fromKey, monthGrid, monthLabel, type DateKey } from '../lib/dates';
-import { colors, fonts, radius } from '../theme';
+import { useColors, type Colors } from '../theme/theme';
+import { fonts, radius } from '../theme';
 import { tap } from './ui';
 
 const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
@@ -22,6 +23,8 @@ export function MonthCalendar({
   logged: Record<DateKey, unknown>;
   onSelect: (key: DateKey) => void;
 }) {
+  const colors = useColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const t = fromKey(today);
   const [cursor, setCursor] = useState({ year: t.getFullYear(), month: t.getMonth() });
   const cells = monthGrid(cursor.year, cursor.month);
@@ -68,7 +71,7 @@ export function MonthCalendar({
               <View
                 style={[
                   styles.day,
-                  kind && dayStyles[kind],
+                  kind && dayStyles(colors)[kind],
                   isToday && styles.today,
                   isSelected && styles.selected,
                 ]}
@@ -99,6 +102,8 @@ export function MonthCalendar({
 }
 
 function Legend({ color, label, border }: { color: string; label: string; border?: string }) {
+  const colors = useColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
     <View style={styles.legendItem}>
       <View
@@ -113,51 +118,53 @@ function Legend({ color, label, border }: { color: string; label: string; border
   );
 }
 
-const dayStyles = StyleSheet.create({
-  period: { backgroundColor: colors.flame },
-  predicted: {
-    backgroundColor: colors.flameSoft,
-    borderWidth: 1.5,
-    borderColor: colors.flame,
-    borderStyle: 'dashed',
-  },
-  fertile: { backgroundColor: colors.fertile },
-  ovulation: { backgroundColor: colors.plum },
-});
+const dayStyles = (colors: Colors) =>
+  StyleSheet.create({
+    period: { backgroundColor: colors.flame },
+    predicted: {
+      backgroundColor: colors.flameSoft,
+      borderWidth: 1.5,
+      borderColor: colors.flame,
+      borderStyle: 'dashed',
+    },
+    fertile: { backgroundColor: colors.fertile },
+    ovulation: { backgroundColor: colors.plum },
+  });
 
-const styles = StyleSheet.create({
-  header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
-  month: { fontFamily: fonts.display, fontSize: 19, color: colors.ink },
-  grid: { flexDirection: 'row', flexWrap: 'wrap' },
-  weekday: {
-    width: `${100 / 7}%`,
-    textAlign: 'center',
-    fontFamily: fonts.bodyBold,
-    fontSize: 12,
-    color: colors.muted,
-    marginBottom: 6,
-  },
-  cell: { width: `${100 / 7}%`, aspectRatio: 1, alignItems: 'center', justifyContent: 'center' },
-  day: {
-    width: '84%',
-    aspectRatio: 1,
-    borderRadius: radius.pill,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  today: { borderWidth: 2, borderColor: colors.ink },
-  selected: { transform: [{ scale: 1.08 }], borderWidth: 2, borderColor: colors.ember },
-  dayText: { fontFamily: fonts.bodyMedium, fontSize: 14, color: colors.ink },
-  dot: {
-    position: 'absolute',
-    bottom: 1,
-    width: 4,
-    height: 4,
-    borderRadius: 2,
-    backgroundColor: colors.inkSoft,
-  },
-  legend: { flexDirection: 'row', flexWrap: 'wrap', gap: 14, marginTop: 14, justifyContent: 'center' },
-  legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
-  legendSwatch: { width: 12, height: 12, borderRadius: 6 },
-  legendText: { fontFamily: fonts.body, fontSize: 12, color: colors.inkSoft },
-});
+const createStyles = (colors: Colors) =>
+  StyleSheet.create({
+    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
+    month: { fontFamily: fonts.display, fontSize: 19, color: colors.ink },
+    grid: { flexDirection: 'row', flexWrap: 'wrap' },
+    weekday: {
+      width: `${100 / 7}%`,
+      textAlign: 'center',
+      fontFamily: fonts.bodyBold,
+      fontSize: 12,
+      color: colors.muted,
+      marginBottom: 6,
+    },
+    cell: { width: `${100 / 7}%`, aspectRatio: 1, alignItems: 'center', justifyContent: 'center' },
+    day: {
+      width: '84%',
+      aspectRatio: 1,
+      borderRadius: radius.pill,
+      alignItems: 'center',
+      justifyContent: 'center',
+    },
+    today: { borderWidth: 2, borderColor: colors.ink },
+    selected: { transform: [{ scale: 1.08 }], borderWidth: 2, borderColor: colors.ember },
+    dayText: { fontFamily: fonts.bodyMedium, fontSize: 14, color: colors.ink },
+    dot: {
+      position: 'absolute',
+      bottom: 1,
+      width: 4,
+      height: 4,
+      borderRadius: 2,
+      backgroundColor: colors.inkSoft,
+    },
+    legend: { flexDirection: 'row', flexWrap: 'wrap', gap: 14, marginTop: 14, justifyContent: 'center' },
+    legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+    legendSwatch: { width: 12, height: 12, borderRadius: 6 },
+    legendText: { fontFamily: fonts.body, fontSize: 12, color: colors.inkSoft },
+  });

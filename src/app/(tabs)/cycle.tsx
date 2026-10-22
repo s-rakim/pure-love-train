@@ -1,4 +1,5 @@
 import { router } from 'expo-router';
+import { useMemo } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 
 import { MonthCalendar } from '../../components/MonthCalendar';
@@ -7,10 +8,13 @@ import { addPeriodDay, isPeriodDay, phaseCopy } from '../../lib/cycle';
 import { shortDate } from '../../lib/dates';
 import { useCycle, useNames } from '../../lib/hooks';
 import { useStore } from '../../lib/store';
-import { colors, fonts, space } from '../../theme';
+import { useColors, type Colors } from '../../theme/theme';
+import { fonts, space } from '../../theme';
 
 export default function Cycle() {
   const { state, update } = useStore();
+  const colors = useColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   const names = useNames();
   const { prediction, map, today } = useCycle();
   const { periods, logs, shareWithPartner } = state.cycle;
@@ -133,6 +137,8 @@ function dateRange(start: string, end: string) {
 }
 
 function Stat({ label, value, sub }: { label: string; value: string; sub: string }) {
+  const colors = useColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
     <Card style={{ flex: 1, gap: space(1) }}>
       <Eyebrow>{label}</Eyebrow>
@@ -143,6 +149,8 @@ function Stat({ label, value, sub }: { label: string; value: string; sub: string
 }
 
 function Average({ value, label }: { value: number; label: string }) {
+  const colors = useColors();
+  const styles = useMemo(() => createStyles(colors), [colors]);
   return (
     <View style={{ alignItems: 'center' }}>
       <Text style={styles.avgValue}>{value}</Text>
@@ -151,20 +159,21 @@ function Average({ value, label }: { value: number; label: string }) {
   );
 }
 
-const styles = StyleSheet.create({
-  ring: {
-    width: 128,
-    height: 128,
-    borderRadius: 64,
-    borderWidth: 6,
-    borderColor: 'rgba(255,255,255,0.55)',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginBottom: space(2),
-  },
-  ringDay: { fontFamily: fonts.bodyBold, fontSize: 13, color: colors.white, letterSpacing: 1 },
-  ringNumber: { fontFamily: fonts.display, fontSize: 48, lineHeight: 54, color: colors.white },
-  onFlame: { color: colors.white, opacity: 0.92, textAlign: 'center' },
-  statValue: { fontFamily: fonts.display, fontSize: 20, color: colors.ink },
-  avgValue: { fontFamily: fonts.display, fontSize: 28, color: colors.flame },
-});
+const createStyles = (colors: Colors) =>
+  StyleSheet.create({
+    ring: {
+      width: 128,
+      height: 128,
+      borderRadius: 64,
+      borderWidth: 6,
+      borderColor: 'rgba(255,255,255,0.55)',
+      alignItems: 'center',
+      justifyContent: 'center',
+      marginBottom: space(2),
+    },
+    ringDay: { fontFamily: fonts.bodyBold, fontSize: 13, color: colors.white, letterSpacing: 1 },
+    ringNumber: { fontFamily: fonts.display, fontSize: 48, lineHeight: 54, color: colors.white },
+    onFlame: { color: colors.white, opacity: 0.92, textAlign: 'center' },
+    statValue: { fontFamily: fonts.display, fontSize: 20, color: colors.ink },
+    avgValue: { fontFamily: fonts.display, fontSize: 28, color: colors.flame },
+  });

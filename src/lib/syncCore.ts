@@ -1,6 +1,6 @@
 import { predict } from './cycle.ts';
 import { todayKey, type DateKey } from './dates.ts';
-import type { Moment, Note, PartnerCycle, State } from './store';
+import type { Moment, Note, PartnerCycle, Ping, State } from './store';
 
 /** A record as the sync server stores it. */
 export type SyncRecord = {
@@ -35,6 +35,9 @@ export function outgoingRecords(s: State, today: DateKey = todayKey()): Map<stri
   }
   for (const m of s.moments) {
     if (m.from === 'me' && m.photoId) add('moment', m.id, { photoId: m.photoId, caption: m.caption, createdAt: m.createdAt });
+  }
+  for (const p of s.pings) {
+    if (p.from === 'me') add('ping', p.id, { createdAt: p.createdAt });
   }
 
   const { tracking, shareWithPartner, periods, settings } = s.cycle;
@@ -132,6 +135,14 @@ export function applyRecords(s: State, records: PulledRecord[], photoUris: Recor
         }
         moments.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
         next = { ...next, moments };
+        break;
+      }
+      case 'ping': {
+        // "Thinking of you" signals. Kept newest-first and capped so the list stays small.
+        let pings = next.pings.filter((p) => p.id !== r.id);
+        if (data) pings.push({ id: r.id, from: 'partner', createdAt: data.createdAt } satisfies Ping);
+        pings = pings.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1)).slice(0, 20);
+        next = { ...next, pings };
         break;
       }
       case 'cycle':

@@ -1,6 +1,6 @@
 {
   "expo": {
-    "name": "Pure Love",
+    "name": "You & I",
     "slug": "pure-love",
     "scheme": "purelove",
     "version": "1.2.0",
@@ -48,6 +48,23 @@
           "android": {
             "usesCleartextTraffic": true
           }
+        }
+      ],
+      [
+        "react-native-android-widget",
+        {
+          "widgets": [
+            {
+              "name": "Moment",
+              "label": "You & I moment",
+              "description": "The latest moment from your partner",
+              "minWidth": "250dp",
+              "minHeight": "250dp",
+              "targetCellWidth": 3,
+              "targetCellHeight": 3,
+              "updatePeriodMillis": 1800000
+            }
+          ]
         }
       ]
     ],

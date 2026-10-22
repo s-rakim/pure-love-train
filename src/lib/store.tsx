@@ -41,6 +41,12 @@ export type Mood = { emoji: string; label: string; at: string };
 
 export type ListItem = { id: string; text: string; done: boolean };
 
+/** A little "thinking of you" signal, one tap to send. */
+export type Ping = { id: string; from: Person; createdAt: string };
+
+/** A daily habit reminder, checked off per day. */
+export type Reminder = { id: string; text: string };
+
 /** What a partner shares about their cycle; raw logs and symptoms never leave the phone. */
 export type PartnerCycle = SharedCycle;
 
@@ -62,6 +68,8 @@ export type SyncState = {
 export type State = {
   onboarded: boolean;
   names: Record<Person, string>;
+  /** Profile photo per person, kept on this phone as a file uri. Null shows initials. */
+  avatars: Record<Person, string | null>;
   togetherSince?: DateKey;
   cycle: {
     tracking: boolean;
@@ -75,6 +83,12 @@ export type State = {
   notes: Note[];
   moods: Partial<Record<Person, Mood>>;
   dateIdeas: ListItem[];
+  pings: Ping[];
+  /** Local only: newest partner ping already shown, so it isn't re-shown on every open. */
+  lastPingViewedAt?: string;
+  reminders: Reminder[];
+  /** Reminder ids checked off, keyed by day. Old days can be cleaned up lazily. */
+  reminderLog: Record<DateKey, string[]>;
   partnerCycle?: PartnerCycle;
   sync?: SyncState;
 };
@@ -87,6 +101,7 @@ export function initialState(): State {
   return {
     onboarded: false,
     names: { me: '', partner: '' },
+    avatars: { me: null, partner: null },
     cycle: {
       tracking: true,
       shareWithPartner: true,
@@ -99,6 +114,9 @@ export function initialState(): State {
     notes: [],
     moods: {},
     dateIdeas: DATE_IDEAS.map((text) => ({ id: newId(), text, done: false })),
+    pings: [],
+    reminders: ['Drink water', 'Take vitamins', 'Stretch for 5 minutes'].map((text) => ({ id: newId(), text })),
+    reminderLog: {},
   };
 }
 

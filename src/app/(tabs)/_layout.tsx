@@ -4,7 +4,8 @@ import { Tabs } from 'expo-router/js-tabs';
 import type { ColorValue } from 'react-native';
 
 import { useStore } from '../../lib/store';
-import { colors, fonts } from '../../theme';
+import { fonts } from '../../theme';
+import { useColors } from '../../theme/theme';
 
 type IconName = keyof typeof Ionicons.glyphMap;
 
@@ -17,6 +18,7 @@ const tab = (title: string, icon: IconName, activeIcon: IconName) => ({
 
 export default function TabsLayout() {
   const { state } = useStore();
+  const colors = useColors();
   if (!state.onboarded) return <Redirect href="/onboarding" />;
 
   return (
