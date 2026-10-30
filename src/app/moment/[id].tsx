@@ -5,15 +5,17 @@ import { useRef, useState } from 'react';
 import { Alert, FlatList, Platform, Pressable, Text, useWindowDimensions, View } from 'react-native';
 import { SafeAreaView } from 'react-native-safe-area-context';
 
+import { MomentVideo, PlayBadge } from '../../components/MomentVideo';
 import { Button, Glass, Row } from '../../components/ui';
 import { relativeTime } from '../../lib/dates';
 import { useNames } from '../../lib/hooks';
-import { deletePhoto } from '../../lib/moments';
-import { savePhoto } from '../../lib/savePhoto';
-import { useStore, type Moment } from '../../lib/store';
-import { fonts, makeStyles, radius, space, useTheme } from '../../theme';
+import { deleteMomentFiles } from '../../lib/moments';
+import { saveToPhone } from '../../lib/saveToPhone';
+import { isVideo, useStore, type Moment } from '../../lib/store';
+import { downloadVideo } from '../../lib/sync';
+import { makeStyles, radius, space, useTheme } from '../../theme';
 
-/** One moment at full size. Swipe sideways through the rest of the history. */
+/** One moment at full size, playing if it's a video. Swipe sideways through the rest of the history. */
 export default function MomentViewer() {
   const { colors } = useTheme();
   const styles = useStyles();
@@ -32,13 +34,26 @@ export default function MomentViewer() {
   const current = moments[Math.min(index, moments.length - 1)];
   if (!current) return <Redirect href="/moments" />;
 
+  const video = isVideo(current);
+  const close = () => (router.canGoBack() ? router.back() : router.replace('/moments'));
+
   const save = async () => {
     setSaving(true);
     try {
-      await savePhoto(current.uri, `pure-love-${current.createdAt.slice(0, 10)}-${current.id}.jpg`);
+      const name = `you-and-i-${current.createdAt.slice(0, 10)}-${current.id}`;
+      if (!video) {
+        await saveToPhone(current.uri, `${name}.jpg`);
+      } else {
+        // A partner's video may still be downloading; fetch it now rather than wait.
+        const uri =
+          current.videoUri ??
+          (state.sync && Platform.OS !== 'web' ? await downloadVideo(state.sync, current, update) : null);
+        if (!uri) throw new Error('This video is still on its way. Try again in a moment.');
+        await saveToPhone(uri, `${name}.${current.videoExt ?? 'mp4'}`);
+      }
       setSaved(current.id);
     } catch (err) {
-      Alert.alert('Could not save the photo', err instanceof Error ? err.message : String(err));
+      Alert.alert(`Could not save the ${video ? 'video' : 'photo'}`, err instanceof Error ? err.message : String(err));
     } finally {
       setSaving(false);
     }
@@ -46,9 +61,9 @@ export default function MomentViewer() {
 
   const remove = () => {
     const doRemove = () => {
-      deletePhoto(current.uri);
+      deleteMomentFiles(current);
       update((s) => ({ ...s, moments: s.moments.filter((m) => m.id !== current.id) }));
-      if (moments.length <= 1) router.back();
+      if (moments.length <= 1) close();
       else setIndex((i) => Math.min(i, moments.length - 2));
     };
     if (Platform.OS === 'web') return doRemove();
@@ -61,7 +76,7 @@ export default function MomentViewer() {
   return (
     <SafeAreaView style={styles.screen} edges={['top', 'bottom']}>
       <Row style={styles.top}>
-        <Pressable accessibilityLabel="Close" hitSlop={12} onPress={() => router.back()} style={styles.iconButton}>
+        <Pressable accessibilityLabel="Close" hitSlop={12} onPress={close} style={styles.iconButton}>
           <Glass radius={20} />
           <Ionicons name="close" size={22} color={colors.ink} />
         </Pressable>
@@ -84,14 +99,23 @@ export default function MomentViewer() {
         onLayout={(e) => setPageHeight(e.nativeEvent.layout.height)}
         showsHorizontalScrollIndicator={false}
         initialScrollIndex={start}
+        extraData={index}
         getItemLayout={(_, i) => ({ length: width, offset: width * i, index: i })}
         onMomentumScrollEnd={(e) => {
           setIndex(Math.round(e.nativeEvent.contentOffset.x / width));
           setSaved(null);
         }}
-        renderItem={({ item }) => (
+        renderItem={({ item, index: i }) => (
           <View style={{ width, height: pageHeight, paddingHorizontal: space(4) }}>
-            <Image source={{ uri: item.uri }} style={styles.photo} contentFit="contain" transition={150} />
+            {isVideo(item) && i === index ? (
+              // Only the clip on screen gets a player; the rest show their still frame.
+              <MomentVideo moment={item} playing style={styles.photo} />
+            ) : (
+              <>
+                <Image source={{ uri: item.uri }} style={styles.photo} contentFit="contain" transition={150} />
+                {isVideo(item) ? <PlayBadge size={64} /> : null}
+              </>
+            )}
           </View>
         )}
       />
@@ -119,7 +143,7 @@ export default function MomentViewer() {
   );
 }
 
-const useStyles = makeStyles((colors) => ({
+const useStyles = makeStyles((colors, fonts) => ({
   screen: { flex: 1, backgroundColor: colors.background },
   top: { justifyContent: 'space-between', paddingHorizontal: space(4), paddingVertical: space(2) },
   iconButton: {
@@ -129,9 +153,9 @@ const useStyles = makeStyles((colors) => ({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  counter: { fontFamily: fonts.bodyMedium, fontSize: 14, color: colors.inkSoft },
+  counter: { ...fonts.bodyMedium, fontSize: 14, color: colors.inkSoft },
   photo: { width: '100%', height: '100%', borderRadius: radius.lg },
   footer: { paddingHorizontal: space(5), paddingTop: space(3), paddingBottom: space(4), gap: space(2) },
-  who: { fontFamily: fonts.bodyBold, fontSize: 15, color: colors.ink, textAlign: 'center' },
-  caption: { fontFamily: fonts.body, fontSize: 15, lineHeight: 21, color: colors.inkSoft, textAlign: 'center' },
+  who: { ...fonts.bodyBold, fontSize: 15, color: colors.ink, textAlign: 'center' },
+  caption: { ...fonts.body, fontSize: 15, lineHeight: 21, color: colors.inkSoft, textAlign: 'center' },
 }));

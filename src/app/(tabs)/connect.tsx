@@ -7,7 +7,7 @@ import { relativeTime, shortDate } from '../../lib/dates';
 import { useNames, useToday } from '../../lib/hooks';
 import { questionForDay } from '../../lib/questions';
 import { newId, useStore } from '../../lib/store';
-import { fonts, makeStyles, radius, space, useTheme } from '../../theme';
+import { makeStyles, radius, space, useTheme } from '../../theme';
 
 /** Talking to each other: today's question, love notes and every answer so far. */
 export default function Connect() {
@@ -88,13 +88,13 @@ export default function Connect() {
   );
 }
 
-const useStyles = makeStyles((colors) => ({
+const useStyles = makeStyles((colors, fonts) => ({
   bubble: { borderRadius: radius.md, paddingHorizontal: space(3.5), paddingVertical: space(2.5), maxWidth: '85%', gap: 2 },
   mine: { alignSelf: 'flex-end', backgroundColor: colors.flame, borderBottomRightRadius: 6 },
   theirs: { alignSelf: 'flex-start', backgroundColor: colors.surfaceRaised, borderBottomLeftRadius: 6 },
-  bubbleText: { fontFamily: fonts.body, fontSize: 15, lineHeight: 21, color: colors.ink },
-  bubbleMeta: { fontFamily: fonts.body, fontSize: 11, color: colors.ink, opacity: 0.6 },
+  bubbleText: { ...fonts.body, fontSize: 15, lineHeight: 21, color: colors.ink },
+  bubbleMeta: { ...fonts.body, fontSize: 11, color: colors.ink, opacity: 0.6 },
   onFlame: { color: colors.white },
-  pastQuestion: { fontFamily: fonts.bodyBold, fontSize: 16, lineHeight: 22, color: colors.ink },
-  who: { fontFamily: fonts.bodyBold, color: colors.ink },
+  pastQuestion: { ...fonts.bodyBold, fontSize: 16, lineHeight: 22, color: colors.ink },
+  who: { ...fonts.bodyBold, color: colors.ink },
 }));

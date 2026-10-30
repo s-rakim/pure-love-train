@@ -10,7 +10,7 @@ import {
   type ReactNode,
 } from 'react';
 
-import type { AppearancePref } from '../theme';
+import type { AppearancePref, FontPref } from '../theme';
 import type { CycleSettings, Period, SharedCycle } from './cycle';
 import type { DateKey } from './dates';
 import { DATE_IDEAS } from './questions';
@@ -28,13 +28,22 @@ export type DayLog = {
 
 export type Moment = {
   id: string;
+  /** The photo, or for a video a still frame from it. */
   uri: string;
   caption: string;
   from: Person;
   createdAt: string;
-  /** Set once the photo is stored on the sync server. */
+  /** Set once the photo (or still frame) is stored on the sync server. */
   photoId?: string;
+  /** For a video: the file on this phone. A partner's video may still be on its way down. */
+  videoUri?: string;
+  /** For a video: set once it's stored on the sync server. */
+  videoId?: string;
+  /** For a video: its file extension (mp4, mov…), so a downloaded copy plays and saves properly. */
+  videoExt?: string;
 };
+
+export const isVideo = (m: Pick<Moment, 'videoUri' | 'videoId'>) => !!(m.videoUri || m.videoId);
 
 export type Note = { id: string; text: string; from: Person; createdAt: string };
 
@@ -53,6 +62,25 @@ export type Coupon = {
   createdAt: string;
   redeemedAt?: string;
 };
+
+/** A letter for the right moment ("Open when you miss me"), kept sealed until the reader opens it. */
+export type Letter = {
+  id: string;
+  /** The moment it's for, like "Open when you can't sleep". */
+  when: string;
+  text: string;
+  from: Person;
+  /** Member id of whoever wrote it, kept so the shared record round-trips unchanged. */
+  writer?: string;
+  createdAt: string;
+  openedAt?: string;
+};
+
+/** Which side of a "this or that" pair someone chose. */
+export type Side = 'a' | 'b';
+
+/** The next date you've planned, counted down for you both. */
+export type NextDate = { date: DateKey; label: string };
 
 /** What a partner shares about their cycle; raw logs and symptoms never leave the phone. */
 export type PartnerCycle = SharedCycle;
@@ -99,10 +127,16 @@ export type State = {
   moods: Partial<Record<Person, Mood>>;
   dateIdeas: ListItem[];
   coupons: Coupon[];
+  /** This or that: the side each of you chose, keyed by the pair's id. */
+  picks: Record<string, Partial<Record<Person, Side>>>;
+  letters: Letter[];
+  nextDate?: NextDate;
   partnerCycle?: PartnerCycle;
   sync?: SyncState;
   /** Light, dark or follow the phone. Stays on this phone and never syncs. */
   appearance?: AppearancePref;
+  /** The phone's own font (the default) or DM Sans. Stays on this phone too. */
+  font?: FontPref;
   account?: Account;
 };
 
@@ -127,6 +161,8 @@ export function initialState(): State {
     moods: {},
     dateIdeas: DATE_IDEAS.map((text) => ({ id: newId(), text, done: false })),
     coupons: [],
+    picks: {},
+    letters: [],
   };
 }
 
@@ -176,7 +212,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const update = useCallback((fn: (s: State) => State) => setState(fn), []);
   // Erasing data keeps the chosen look; it isn't part of what you two shared.
-  const reset = useCallback(() => setState((s) => ({ ...initialState(), appearance: s.appearance })), []);
+  const reset = useCallback(() => setState((s) => ({ ...initialState(), appearance: s.appearance, font: s.font })), []);
 
   const value = useMemo(() => ({ state, ready, update, reset }), [state, ready, update, reset]);
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;

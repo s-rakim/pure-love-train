@@ -1,4 +1,4 @@
-import type { AppearancePref } from '../theme';
+import type { AppearancePref, FontPref } from '../theme';
 import { googleIdToken } from './google';
 import { initialState, type State, type SyncState } from './store';
 import { request } from './sync';
@@ -18,7 +18,7 @@ type Restored = {
 async function signInWithGoogle(serverUrl: string): Promise<string | null> {
   const config = await request<{ googleClientId: string | null }>({ serverUrl }, '/api/config');
   if (!config.googleClientId) {
-    throw new Error("Google sign-in isn't switched on for your Pure Love server yet. Add GOOGLE_CLIENT_ID to its settings.");
+    throw new Error("Google sign-in isn't switched on for your sync server yet. Add GOOGLE_CLIENT_ID to its settings.");
   }
   return googleIdToken(config.googleClientId);
 }
@@ -63,6 +63,7 @@ export function restoredState(serverUrl: string, session: Restored): State {
     togetherSince: backup?.togetherSince ?? undefined,
     cycle: backup?.cycle ? { ...base.cycle, ...backup.cycle } : base.cycle,
     appearance: (backup?.appearance as AppearancePref | undefined) ?? undefined,
+    font: (backup?.font as FontPref | undefined) ?? undefined,
     // Date ideas and coupons are shared, so they come back with everything else.
     dateIdeas: [],
     account: { email: session.email },

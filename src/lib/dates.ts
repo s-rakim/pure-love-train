@@ -49,6 +49,14 @@ export function shortDate(key: DateKey): string {
   return `${SHORT_MONTHS[d.getMonth()]} ${d.getDate()}`;
 }
 
+/** "Oct 3–7", or "Oct 30–Nov 3" across a month boundary. */
+export function dateRange(start: DateKey, end: DateKey): string {
+  if (start === end) return shortDate(start);
+  const [startMonth] = shortDate(start).split(' ');
+  const [endMonth, endDay] = shortDate(end).split(' ');
+  return `${shortDate(start)}–${startMonth === endMonth ? endDay : `${endMonth} ${endDay}`}`;
+}
+
 /** 6x7 grid of keys (or null for padding) for a month, weeks starting on Sunday. */
 export function monthGrid(year: number, month: number): (DateKey | null)[] {
   const first = new Date(year, month, 1);
@@ -66,4 +74,11 @@ export function relativeTime(iso: string, now: Date = new Date()): string {
   const hours = Math.round(mins / 60);
   if (hours < 24) return `${hours}h ago`;
   return shortDate(toKey(new Date(iso)));
+}
+
+/** "today", "tomorrow" or "in 5 days". */
+export function untilText(days: number): string {
+  if (days <= 0) return 'today';
+  if (days === 1) return 'tomorrow';
+  return `in ${days} days`;
 }

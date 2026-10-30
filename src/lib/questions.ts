@@ -59,3 +59,52 @@ export const DATE_IDEAS = [
   'Picnic with only foods neither of you has tried',
   'Stargazing with a sky map app',
 ];
+
+/**
+ * This or that: quick pairs you each pick a side of, then see where you agree.
+ * Picks are saved under the id, so an id never changes once it's out there.
+ */
+export const THIS_OR_THAT: { id: string; a: string; b: string }[] = [
+  { id: 'night-in-out', a: '🛋️ Night in', b: '🍸 Night out' },
+  { id: 'beach-mountains', a: '🏖️ Beach', b: '🏔️ Mountains' },
+  { id: 'coffee-tea', a: '☕ Coffee', b: '🍵 Tea' },
+  { id: 'sunrise-sunset', a: '🌅 Sunrise', b: '🌇 Sunset' },
+  { id: 'cook-takeout', a: '🍳 Cook together', b: '🥡 Order in' },
+  { id: 'texts-calls', a: '💬 Texts', b: '📞 Calls' },
+  { id: 'big-little-spoon', a: '🥄 Big spoon', b: '🤏 Little spoon' },
+  { id: 'plan-spontaneous', a: '🗓️ Plan it all', b: '🎲 Go with the flow' },
+  { id: 'city-cabin', a: '🏙️ City break', b: '🌲 Cabin in the woods' },
+  { id: 'movie-series', a: '🎬 One movie', b: '📺 A series binge' },
+  { id: 'sweet-savory', a: '🍰 Sweet', b: '🍟 Savory' },
+  { id: 'kiss-hug', a: '😘 A kiss', b: '🤗 A long hug' },
+  { id: 'early-late', a: '🐓 Early bird', b: '🦉 Night owl' },
+  { id: 'gift-time', a: '🎁 A thoughtful gift', b: '⏳ A whole day together' },
+  { id: 'letter-song', a: '💌 A love letter', b: '🎶 A song about us' },
+  { id: 'cats-dogs', a: '🐱 Cats', b: '🐶 Dogs' },
+  { id: 'summer-winter', a: '☀️ Summer', b: '❄️ Winter' },
+  { id: 'road-flight', a: '🚗 Road trip', b: '✈️ Fly somewhere far' },
+  { id: 'pizza-sushi', a: '🍕 Pizza', b: '🍣 Sushi' },
+  { id: 'surprise-plan', a: '🎉 Surprise me', b: '📝 Tell me the plan' },
+  { id: 'party-dinner', a: '🎊 Big party', b: '🕯️ Dinner for two' },
+  { id: 'rain-sun', a: '🌧️ Rainy day in', b: '🌞 Sunny day out' },
+  { id: 'photos-moment', a: '📸 Take photos', b: '👀 Just live it' },
+  { id: 'museum-concert', a: '🖼️ Museum', b: '🎸 Concert' },
+  { id: 'breakfast-dinner', a: '🥞 Breakfast date', b: '🍷 Dinner date' },
+  { id: 'movie-game-night', a: '🍿 Movie night', b: '🎲 Game night' },
+  { id: 'say-show', a: '🗣️ Say I love you', b: '🫶 Show I love you' },
+  { id: 'old-new-spot', a: '📍 Our favourite spot', b: '🧭 Somewhere new' },
+  { id: 'chocolate-flowers', a: '🍫 Chocolate', b: '💐 Flowers' },
+  { id: 'talk-sleep', a: '🌙 Stay up talking', b: '😴 Early night, cuddled up' },
+  { id: 'hike-spa', a: '🥾 Hike', b: '🧖 Spa day' },
+  { id: 'dance-karaoke', a: '💃 Dancing', b: '🎤 Karaoke' },
+  { id: 'note-voice', a: '✍️ Handwritten note', b: '🎙️ Voice note' },
+  { id: 'past-future', a: '💭 Relive our first date', b: '🔮 Plan our next adventure' },
+  { id: 'matching-outfits', a: '👕 Matching outfits', b: '🙅 Absolutely not' },
+  { id: 'paris-tokyo', a: '🗼 Paris', b: '🗾 Tokyo' },
+];
+
+/** Splits "🏖️ Beach" into its emoji and its words. */
+export function splitOption(option: string): { emoji: string; text: string } {
+  const space = option.indexOf(' ');
+  return { emoji: option.slice(0, space), text: option.slice(space + 1) };
+}

@@ -15,9 +15,9 @@ import {
   type TextStyle,
   type ViewStyle,
 } from 'react-native';
-import { SafeAreaView, type Edge } from 'react-native-safe-area-context';
+import { SafeAreaView, useSafeAreaInsets, type Edge } from 'react-native-safe-area-context';
 
-import { fonts, makeStyles, palettes, radius, shadow, space, TAB_BAR_SPACE, useTheme } from '../theme';
+import { makeStyles, palettes, radius, shadow, space, tabBarSpace, useTheme } from '../theme';
 
 /** Black or white, whichever reads better on the given background colour. */
 export function textOn(hex: string) {
@@ -44,20 +44,22 @@ export function Screen({
 }) {
   const { colors } = useTheme();
   const styles = useStyles();
+  const insets = useSafeAreaInsets();
+  const content = [styles.scrollContent, { paddingBottom: tabBarSpace(insets.bottom) }, style];
   return (
     <SafeAreaView style={styles.screen} edges={edges}>
       {/* A soft wash at the top; in dark mode both ends match, so it disappears. */}
       <LinearGradient colors={[colors.glow, colors.background]} style={styles.glow} pointerEvents="none" />
       {scroll ? (
         <ScrollView
-          contentContainerStyle={[styles.scrollContent, style]}
+          contentContainerStyle={content}
           keyboardShouldPersistTaps="handled"
           showsVerticalScrollIndicator={false}
         >
           {children}
         </ScrollView>
       ) : (
-        <View style={[styles.scrollContent, { flex: 1 }, style]}>{children}</View>
+        <View style={[...content, { flex: 1 }]}>{children}</View>
       )}
     </SafeAreaView>
   );
@@ -229,7 +231,7 @@ export function Field(props: TextInputProps & { label?: string }) {
 }
 
 export function Avatar({ name, size = 40, tone }: { name: string; size?: number; tone?: string }) {
-  const { colors } = useTheme();
+  const { colors, fonts } = useTheme();
   return (
     <View
       style={{
@@ -243,7 +245,7 @@ export function Avatar({ name, size = 40, tone }: { name: string; size?: number;
         borderColor: colors.background,
       }}
     >
-      <Text style={{ color: colors.white, fontFamily: fonts.bodyBold, fontSize: size * 0.4 }}>
+      <Text style={{ color: colors.white, ...fonts.bodyBold, fontSize: size * 0.4 }}>
         {(name.trim()[0] ?? '?').toUpperCase()}
       </Text>
     </View>
@@ -254,14 +256,14 @@ export function Row({ children, style }: { children: ReactNode; style?: StylePro
   return <View style={[{ flexDirection: 'row', alignItems: 'center', gap: space(3) }, style]}>{children}</View>;
 }
 
-const useStyles = makeStyles((colors) => ({
+const useStyles = makeStyles((colors, fonts) => ({
   screen: { flex: 1, backgroundColor: colors.background },
   glow: { position: 'absolute', top: 0, left: 0, right: 0, height: 360 },
-  scrollContent: { padding: space(5), paddingBottom: TAB_BAR_SPACE, gap: space(4) },
-  title: { fontFamily: fonts.display, fontSize: 30, color: colors.ink, letterSpacing: -0.8 },
-  heading: { fontFamily: fonts.display, fontSize: 20, color: colors.ink, letterSpacing: -0.4 },
-  body: { fontFamily: fonts.body, fontSize: 15, lineHeight: 22, color: colors.inkSoft },
-  eyebrow: { fontFamily: fonts.bodyBold, fontSize: 12, letterSpacing: 1.2, textTransform: 'uppercase' },
+  scrollContent: { padding: space(5), gap: space(4) },
+  title: { ...fonts.display, fontSize: 30, color: colors.ink, letterSpacing: -0.8 },
+  heading: { ...fonts.display, fontSize: 20, color: colors.ink, letterSpacing: -0.4 },
+  body: { ...fonts.body, fontSize: 15, lineHeight: 22, color: colors.inkSoft },
+  eyebrow: { ...fonts.bodyBold, fontSize: 12, letterSpacing: 1.2, textTransform: 'uppercase' },
   card: { borderRadius: radius.lg, padding: space(5), gap: space(3), ...shadow(colors) },
   button: {
     minHeight: 50,
@@ -272,15 +274,15 @@ const useStyles = makeStyles((colors) => ({
     justifyContent: 'center',
     gap: space(2),
   },
-  buttonLabel: { fontFamily: fonts.bodyBold, fontSize: 16 },
+  buttonLabel: { ...fonts.bodyBold, fontSize: 16 },
   chip: {
     borderWidth: 1.5,
     borderRadius: radius.pill,
     paddingHorizontal: space(3.5),
     paddingVertical: space(2),
   },
-  chipLabel: { fontFamily: fonts.bodyMedium, fontSize: 14 },
-  fieldLabel: { fontFamily: fonts.bodyBold, fontSize: 13, color: colors.inkSoft },
+  chipLabel: { ...fonts.bodyMedium, fontSize: 14 },
+  fieldLabel: { ...fonts.bodyBold, fontSize: 13, color: colors.inkSoft },
   backdrop: { flex: 1, backgroundColor: 'rgba(0,0,0,0.45)' },
   sheet: {
     borderTopLeftRadius: radius.xl,
@@ -299,7 +301,7 @@ const useStyles = makeStyles((colors) => ({
     borderColor: colors.line,
     paddingHorizontal: space(4),
     paddingVertical: space(3.5),
-    fontFamily: fonts.body,
+    ...fonts.body,
     fontSize: 16,
     color: colors.ink,
   },
@@ -356,12 +358,27 @@ export function Sheet({
   );
 }
 
-/** Section label above a group of cards, like "Today" or "Activities". */
-export function SectionTitle({ children, action }: { children: ReactNode; action?: ReactNode }) {
+export const APP_NAME = 'You&I💞';
+
+/**
+ * The app's name. It never names a font, so it's always drawn in the phone's own,
+ * the same as the name under the app icon.
+ */
+export function Wordmark({ size = 40 }: { size?: number }) {
   const { colors } = useTheme();
   return (
+    <Text accessibilityRole="header" style={{ fontSize: size, lineHeight: size * 1.25, color: colors.ink }}>
+      {APP_NAME}
+    </Text>
+  );
+}
+
+/** Section label above a group of cards, like "Today" or "Activities". */
+export function SectionTitle({ children, action }: { children: ReactNode; action?: ReactNode }) {
+  const { colors, fonts } = useTheme();
+  return (
     <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: space(2) }}>
-      <Text style={{ fontFamily: fonts.bodyBold, fontSize: 18, color: colors.ink, letterSpacing: -0.3 }}>{children}</Text>
+      <Text style={{ ...fonts.bodyBold, fontSize: 18, color: colors.ink, letterSpacing: -0.3 }}>{children}</Text>
       {action}
     </View>
   );

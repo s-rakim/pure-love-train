@@ -4,11 +4,12 @@ import { useEffect, useRef, useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 import { Flame } from '../../components/Flame';
+import { NextDateSheet } from '../../components/NextDateSheet';
 import { Avatar, Body, Button, Card, Eyebrow, Field, Row, Screen, SectionTitle, Sheet, Title } from '../../components/ui';
 import { addDays, diffDays, fromKey, shortDate, toKey, type DateKey } from '../../lib/dates';
 import { useDaysTogether, useNames, useStreak, useToday } from '../../lib/hooks';
 import { newId, useStore } from '../../lib/store';
-import { fonts, makeStyles, radius, space, useTheme } from '../../theme';
+import { makeStyles, radius, space, useTheme } from '../../theme';
 
 type Milestone = { label: string; date: DateKey; daysAway: number };
 
@@ -61,6 +62,7 @@ export default function Us() {
   const { spin: spinParam } = useLocalSearchParams<{ spin?: string }>();
   const [picked, setPicked] = useState<{ id: string; text: string } | null>(null);
   const [spinning, setSpinning] = useState(false);
+  const [planning, setPlanning] = useState(false);
   const spinTimer = useRef<ReturnType<typeof setInterval> | null>(null);
   const open = state.dateIdeas.filter((d) => !d.done);
 
@@ -92,6 +94,8 @@ export default function Us() {
   }, [spinParam]);
 
   const milestones = upcomingMilestones(state.togetherSince, today);
+  const nextDate = state.nextDate && state.nextDate.date >= today ? state.nextDate : undefined;
+  const dateAway = nextDate ? diffDays(today, nextDate.date) : 0;
   const span = state.togetherSince ? together(state.togetherSince, today) : null;
   const paired = !!state.sync && !state.sync.pairCode;
 
@@ -186,23 +190,35 @@ export default function Us() {
         ) : null}
       </Row>
 
-      {milestones.length ? (
-        <>
-          <SectionTitle>Countdowns</SectionTitle>
-          {milestones.map((m) => (
-            <Card key={m.label} style={styles.countdown}>
-              <View style={styles.countIcon}>
-                <Ionicons name="calendar" size={20} color={colors.flame} />
-              </View>
-              <View style={{ flex: 1 }}>
-                <Text style={styles.countTitle}>{m.label} together</Text>
-                <Body muted style={{ fontSize: 13 }}>{shortDate(m.date)}</Body>
-              </View>
-              <Text style={styles.countDays}>{m.daysAway === 0 ? 'Today' : `${m.daysAway}d`}</Text>
-            </Card>
-          ))}
-        </>
-      ) : null}
+      <SectionTitle>Countdowns</SectionTitle>
+      <Card style={styles.countdown} onPress={() => setPlanning(true)}>
+        <View style={[styles.countIcon, { backgroundColor: colors.roseSoft }]}>
+          <Ionicons name="heart" size={20} color={colors.rose} />
+        </View>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.countTitle}>{nextDate ? nextDate.label || 'Our next date' : 'Plan your next date'}</Text>
+          <Body muted style={{ fontSize: 13 }}>
+            {nextDate ? shortDate(nextDate.date) : 'Pick a day and count down together'}
+          </Body>
+        </View>
+        {nextDate ? (
+          <Text style={[styles.countDays, { color: colors.rose }]}>{dateAway === 0 ? 'Today' : `${dateAway}d`}</Text>
+        ) : (
+          <Ionicons name="add-circle" size={26} color={colors.rose} />
+        )}
+      </Card>
+      {milestones.map((m) => (
+        <Card key={m.label} style={styles.countdown}>
+          <View style={styles.countIcon}>
+            <Ionicons name="calendar" size={20} color={colors.flame} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <Text style={styles.countTitle}>{m.label} together</Text>
+            <Body muted style={{ fontSize: 13 }}>{shortDate(m.date)}</Body>
+          </View>
+          <Text style={styles.countDays}>{m.daysAway === 0 ? 'Today' : `${m.daysAway}d`}</Text>
+        </Card>
+      ))}
 
       <SectionTitle
         action={
@@ -245,6 +261,7 @@ export default function Us() {
         ))}
       </Card>
 
+      <NextDateSheet visible={planning} onClose={() => setPlanning(false)} />
       <Sheet visible={!!picked} title="Tonight's date" onClose={() => setPicked(null)}>
         <Text style={[styles.picked, spinning && { opacity: 0.5 }]}>{picked?.text}</Text>
         <Row style={{ opacity: spinning ? 0 : 1 }}>
@@ -264,12 +281,12 @@ export default function Us() {
   );
 }
 
-const useStyles = makeStyles((colors) => ({
-  pairTitle: { fontFamily: fonts.bodyBold, fontSize: 18, color: colors.white },
-  pairBody: { fontFamily: fonts.body, fontSize: 14, lineHeight: 20, color: colors.white, opacity: 0.9 },
-  bigNumber: { fontFamily: fonts.display, fontSize: 48, lineHeight: 52, color: colors.ink, marginTop: -space(2) },
-  bigLabel: { fontFamily: fonts.bodyMedium, fontSize: 15, color: colors.inkSoft, marginTop: -space(2) },
-  weekday: { fontFamily: fonts.bodyBold, fontSize: 12, color: colors.muted },
+const useStyles = makeStyles((colors, fonts) => ({
+  pairTitle: { ...fonts.bodyBold, fontSize: 18, color: colors.white },
+  pairBody: { ...fonts.body, fontSize: 14, lineHeight: 20, color: colors.white, opacity: 0.9 },
+  bigNumber: { ...fonts.display, fontSize: 48, lineHeight: 52, color: colors.ink, marginTop: -space(2) },
+  bigLabel: { ...fonts.bodyMedium, fontSize: 15, color: colors.inkSoft, marginTop: -space(2) },
+  weekday: { ...fonts.bodyBold, fontSize: 12, color: colors.muted },
   dot: {
     width: 30,
     height: 30,
@@ -279,7 +296,7 @@ const useStyles = makeStyles((colors) => ({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  statNumber: { fontFamily: fonts.display, fontSize: 30, color: colors.ink, letterSpacing: -0.6 },
+  statNumber: { ...fonts.display, fontSize: 30, color: colors.ink, letterSpacing: -0.6 },
   countdown: { flexDirection: 'row', alignItems: 'center', gap: space(3), paddingVertical: space(4) },
   countIcon: {
     width: 40,
@@ -289,10 +306,10 @@ const useStyles = makeStyles((colors) => ({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  countTitle: { fontFamily: fonts.bodyBold, fontSize: 15, color: colors.ink },
-  countDays: { fontFamily: fonts.bodyBold, fontSize: 17, color: colors.flame },
+  countTitle: { ...fonts.bodyBold, fontSize: 15, color: colors.ink },
+  countDays: { ...fonts.bodyBold, fontSize: 17, color: colors.flame },
   idea: { paddingVertical: space(1) },
-  ideaText: { flex: 1, fontFamily: fonts.body, fontSize: 15, color: colors.ink },
+  ideaText: { flex: 1, ...fonts.body, fontSize: 15, color: colors.ink },
   ideaDone: { color: colors.muted, textDecorationLine: 'line-through' },
   spinButton: {
     flexDirection: 'row',
@@ -303,9 +320,9 @@ const useStyles = makeStyles((colors) => ({
     borderRadius: radius.pill,
     backgroundColor: colors.flameSoft,
   },
-  spinLabel: { fontFamily: fonts.bodyBold, fontSize: 13, color: colors.flameDeep },
+  spinLabel: { ...fonts.bodyBold, fontSize: 13, color: colors.flameDeep },
   picked: {
-    fontFamily: fonts.display,
+    ...fonts.display,
     fontSize: 26,
     lineHeight: 32,
     color: colors.ink,

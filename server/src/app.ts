@@ -1,18 +1,22 @@
 import { createHash, randomBytes, randomUUID } from 'node:crypto';
-import { createReadStream, mkdirSync, statSync, writeFileSync } from 'node:fs';
+import { createReadStream, createWriteStream, mkdirSync, rmSync, statSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
+import { pipeline } from 'node:stream/promises';
 
 import type { RecordRow } from './db.ts';
 
 /** Records each partner owns; only their author may change them. */
-const OWNED_KINDS = new Set(['profile', 'mood', 'answer', 'note', 'moment', 'cycle']);
+const OWNED_KINDS = new Set(['profile', 'mood', 'answer', 'note', 'moment', 'cycle', 'pick']);
 /** Records either partner may change; the latest write wins. */
-const SHARED_KINDS = new Set(['dateIdea', 'couple', 'coupon']);
+const SHARED_KINDS = new Set(['dateIdea', 'couple', 'coupon', 'letter']);
 
 const MAX_JSON_BYTES = 1_000_000;
 const MAX_PHOTO_BYTES = 15_000_000;
+const MAX_VIDEO_BYTES = 105_000_000;
+const PHOTO_TYPES = /^image\/(jpeg|png|webp|heic|heif|gif)$/;
+const VIDEO_TYPES = /^video\/(mp4|quicktime|3gpp|webm)$/;
 const MAX_RECORD_BYTES = 20_000;
 const PAGE_SIZE = 500;
 
@@ -72,8 +76,9 @@ function makePairCode(): string {
 // The app talks to the server from phones and, during development, from a browser.
 const CORS = {
   'access-control-allow-origin': '*',
-  'access-control-allow-headers': 'authorization, content-type',
+  'access-control-allow-headers': 'authorization, content-type, range',
   'access-control-allow-methods': 'GET, POST, OPTIONS',
+  'access-control-expose-headers': 'content-range, content-length, accept-ranges',
 };
 
 function send(res: ServerResponse, status: number, body: unknown) {
@@ -91,6 +96,28 @@ async function readBody(req: IncomingMessage, limit: number): Promise<Buffer> {
     chunks.push(chunk as Buffer);
   }
   return Buffer.concat(chunks);
+}
+
+/** Streams a request body into a file, giving up (and removing the file) past `limit` bytes. */
+async function saveBody(req: IncomingMessage, path: string, limit: number): Promise<number> {
+  let size = 0;
+  try {
+    await pipeline(
+      req,
+      async function* (source: AsyncIterable<Buffer>) {
+        for await (const chunk of source) {
+          size += chunk.length;
+          if (size > limit) throw new HttpError(413, 'That file is too large');
+          yield chunk;
+        }
+      },
+      createWriteStream(path),
+    );
+    return size;
+  } catch (err) {
+    rmSync(path, { force: true });
+    throw err;
+  }
 }
 
 async function readJson(req: IncomingMessage): Promise<any> {
@@ -326,15 +353,20 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
     send(res, 200, { ok: true });
   }
 
+  // Photos and videos share one store; a video moment is a still frame plus the clip.
   async function uploadPhoto(req: IncomingMessage, res: ServerResponse) {
     const member = authenticate(req);
     const mime = String(req.headers['content-type'] ?? '').split(';')[0].trim();
-    if (!/^image\/(jpeg|png|webp|heic|heif|gif)$/.test(mime)) throw new HttpError(415, 'Only images are accepted');
-    const bytes = await readBody(req, MAX_PHOTO_BYTES);
-    if (!bytes.length) throw new HttpError(400, 'The photo is empty');
+    const limit = PHOTO_TYPES.test(mime) ? MAX_PHOTO_BYTES : VIDEO_TYPES.test(mime) ? MAX_VIDEO_BYTES : 0;
+    if (!limit) throw new HttpError(415, 'Only photos and videos are accepted');
     const id = randomUUID();
-    writeFileSync(join(photoDir, id), bytes);
-    insertPhoto.run(id, member.couple_id, member.id, mime, bytes.length, now());
+    const path = join(photoDir, id);
+    const size = await saveBody(req, path, limit);
+    if (!size) {
+      rmSync(path, { force: true });
+      throw new HttpError(400, 'The file is empty');
+    }
+    insertPhoto.run(id, member.couple_id, member.id, mime, size, now());
     send(res, 201, { photoId: id });
   }
 
@@ -343,12 +375,26 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
     const photo = getPhoto.get(id) as { id: string; couple_id: string; mime: string; size: number } | undefined;
     if (!photo || photo.couple_id !== member.couple_id) throw new HttpError(404, 'Photo not found');
     const path = join(photoDir, photo.id);
-    res.writeHead(200, {
+    const size = statSync(path).size;
+    const headers = {
       ...CORS,
       'content-type': photo.mime,
-      'content-length': statSync(path).size,
+      'accept-ranges': 'bytes',
       'cache-control': 'private, max-age=31536000, immutable',
-    });
+    };
+    // Players ask for videos a piece at a time, so they can start (and skip ahead) straight away.
+    const range = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range ?? ''));
+    if (range && (range[1] || range[2])) {
+      const start = range[1] ? Number(range[1]) : Math.max(0, size - Number(range[2]));
+      const end = range[1] && range[2] ? Math.min(Number(range[2]), size - 1) : size - 1;
+      if (start > end) {
+        res.writeHead(416, { ...CORS, 'content-range': `bytes */${size}` });
+        return res.end();
+      }
+      res.writeHead(206, { ...headers, 'content-range': `bytes ${start}-${end}/${size}`, 'content-length': end - start + 1 });
+      return createReadStream(path, { start, end }).pipe(res);
+    }
+    res.writeHead(200, { ...headers, 'content-length': size });
     createReadStream(path).pipe(res);
   }
 

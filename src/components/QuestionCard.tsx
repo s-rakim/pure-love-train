@@ -5,7 +5,7 @@ import { Text, View } from 'react-native';
 import { useNames, useToday } from '../lib/hooks';
 import { questionForDay } from '../lib/questions';
 import { useStore } from '../lib/store';
-import { fonts, makeStyles, radius, space, useTheme } from '../theme';
+import { makeStyles, radius, space, useTheme } from '../theme';
 import { Avatar, Button, Card, Eyebrow, Field, Row } from './ui';
 
 /** Today's shared question. Answers stay hidden until both of you have replied. */
@@ -78,9 +78,9 @@ function Answer({ name, text, tone }: { name: string; text: string; tone: string
   );
 }
 
-const useStyles = makeStyles((colors) => ({
-  question: { fontFamily: fonts.display, fontSize: 22, lineHeight: 29, color: colors.ink },
-  hint: { flex: 1, fontFamily: fonts.body, fontSize: 14, lineHeight: 20, color: colors.inkSoft },
+const useStyles = makeStyles((colors, fonts) => ({
+  question: { ...fonts.display, fontSize: 22, lineHeight: 29, color: colors.ink },
+  hint: { flex: 1, ...fonts.body, fontSize: 14, lineHeight: 20, color: colors.inkSoft },
   locked: {
     flexDirection: 'row',
     gap: space(2),
@@ -90,6 +90,6 @@ const useStyles = makeStyles((colors) => ({
     padding: space(3),
   },
   bubble: { flex: 1, backgroundColor: colors.surface, borderRadius: radius.md, padding: space(3), gap: 2 },
-  bubbleName: { fontFamily: fonts.bodyBold, fontSize: 12, color: colors.muted },
-  bubbleText: { fontFamily: fonts.body, fontSize: 15, lineHeight: 21, color: colors.ink },
+  bubbleName: { ...fonts.bodyBold, fontSize: 12, color: colors.muted },
+  bubbleText: { ...fonts.body, fontSize: 15, lineHeight: 21, color: colors.ink },
 }));

@@ -1,8 +1,10 @@
 import { createContext, useContext } from 'react';
-import { StyleSheet } from 'react-native';
+import { StyleSheet, type TextStyle } from 'react-native';
 
 export type Scheme = 'light' | 'dark';
 export type AppearancePref = 'system' | Scheme;
+/** Type in whatever font the phone uses, or in DM Sans, the original look. */
+export type FontPref = 'phone' | 'classic';
 
 // Candlelit at night: near-black surfaces, warm off-white text and a bright flame accent.
 const dark = {
@@ -87,38 +89,55 @@ const light: Palette = {
 
 export const palettes: Record<Scheme, Palette> = { dark, light };
 
-export type Theme = { scheme: Scheme; colors: Palette };
+type FontStyle = Pick<TextStyle, 'fontFamily' | 'fontWeight'>;
+export type Fonts = Record<'display' | 'body' | 'bodyMedium' | 'bodyBold', FontStyle>;
 
-export const ThemeContext = createContext<Theme>({ scheme: 'dark', colors: dark });
+/*
+ * Styles spread one of these (`...fonts.bodyBold`) rather than naming a font file,
+ * so the same screens work in either set.
+ */
+export const fontSets: Record<FontPref, Fonts> = {
+  // No family at all, so Android draws the text in the phone's own font, the same as its home screen.
+  phone: {
+    display: { fontWeight: '700' },
+    body: { fontWeight: '400' },
+    bodyMedium: { fontWeight: '500' },
+    bodyBold: { fontWeight: '700' },
+  },
+  classic: {
+    display: { fontFamily: 'DMSans_700Bold' },
+    body: { fontFamily: 'DMSans_400Regular' },
+    bodyMedium: { fontFamily: 'DMSans_500Medium' },
+    bodyBold: { fontFamily: 'DMSans_700Bold' },
+  },
+};
+
+export type Theme = { scheme: Scheme; colors: Palette; fonts: Fonts };
+
+export const ThemeContext = createContext<Theme>({ scheme: 'dark', colors: dark, fonts: fontSets.phone });
 
 export function useTheme(): Theme {
   return useContext(ThemeContext);
 }
 
 /**
- * Builds a hook that returns a stylesheet for the current palette. Each
- * palette's sheet is built once, so switching themes back and forth is free.
+ * Builds a hook that returns a stylesheet for the current palette and fonts. Each
+ * combination is built once, so switching back and forth is free.
  */
-export function makeStyles<T extends StyleSheet.NamedStyles<T>>(build: (colors: Palette) => T) {
-  const cache = new Map<Palette, T>();
+export function makeStyles<T extends StyleSheet.NamedStyles<T>>(build: (colors: Palette, fonts: Fonts) => T) {
+  const cache = new Map<Palette, Map<Fonts, T>>();
   return function useStyles(): T {
-    const { colors } = useTheme();
-    let sheet = cache.get(colors);
+    const { colors, fonts } = useTheme();
+    let sheets = cache.get(colors);
+    if (!sheets) cache.set(colors, (sheets = new Map()));
+    let sheet = sheets.get(fonts);
     if (!sheet) {
-      sheet = StyleSheet.create(build(colors));
-      cache.set(colors, sheet);
+      sheet = StyleSheet.create(build(colors, fonts));
+      sheets.set(fonts, sheet);
     }
     return sheet;
   };
 }
-
-export const fonts = {
-  display: 'DMSans_700Bold',
-  displayItalic: 'DMSans_500Medium',
-  body: 'DMSans_400Regular',
-  bodyMedium: 'DMSans_500Medium',
-  bodyBold: 'DMSans_700Bold',
-} as const;
 
 export const radius = {
   sm: 10,
@@ -133,5 +152,10 @@ export const space = (n: number) => n * 4;
 // Shadows barely read on black, so cards lean on a hairline border instead.
 export const shadow = (colors: Palette) => ({ borderWidth: 1, borderColor: colors.line }) as const;
 
-/** Room left under scrolling content for the floating tab bar. */
-export const TAB_BAR_SPACE = 120;
+export const TAB_BAR_HEIGHT = 74;
+
+/** How far the floating tab bar sits above the bottom edge, clear of the phone's own navigation buttons. */
+export const tabBarBottom = (bottomInset: number) => Math.max(20, bottomInset + 10);
+
+/** Room left under scrolling content so the last card clears the floating tab bar. */
+export const tabBarSpace = (bottomInset: number) => tabBarBottom(bottomInset) + TAB_BAR_HEIGHT + 26;

@@ -4,7 +4,7 @@ import { Pressable, Text, View } from 'react-native';
 
 import type { DayKind } from '../lib/cycle';
 import { fromKey, monthGrid, monthLabel, type DateKey } from '../lib/dates';
-import { fonts, makeStyles, radius, useTheme } from '../theme';
+import { makeStyles, radius, useTheme } from '../theme';
 import { tap } from './ui';
 
 const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
@@ -13,19 +13,27 @@ export function MonthCalendar({
   map,
   today,
   selected,
-  logged,
+  logged = {},
   onSelect,
+  minDate,
+  maxDate,
+  legend = true,
 }: {
   map: Record<DateKey, DayKind>;
   today: DateKey;
   selected?: DateKey;
-  logged: Record<DateKey, unknown>;
+  logged?: Record<DateKey, unknown>;
   onSelect: (key: DateKey) => void;
+  /** Days before this one are greyed out and can't be picked. */
+  minDate?: DateKey;
+  /** Days after this one are greyed out and can't be picked. */
+  maxDate?: DateKey;
+  legend?: boolean;
 }) {
   const { colors } = useTheme();
   const styles = useStyles();
   const dayStyles = useDayStyles();
-  const t = fromKey(today);
+  const t = fromKey(selected ?? today);
   const [cursor, setCursor] = useState({ year: t.getFullYear(), month: t.getMonth() });
   const cells = monthGrid(cursor.year, cursor.month);
 
@@ -57,16 +65,19 @@ export function MonthCalendar({
           const kind = map[key];
           const isToday = key === today;
           const isSelected = key === selected;
+          const disabled = (!!minDate && key < minDate) || (!!maxDate && key > maxDate);
           return (
             <Pressable
               key={key}
               accessibilityRole="button"
               accessibilityLabel={`${key}${kind ? `, ${kind}` : ''}`}
+              accessibilityState={{ disabled, selected: isSelected }}
+              disabled={disabled}
               onPress={() => {
                 tap();
                 onSelect(key);
               }}
-              style={styles.cell}
+              style={[styles.cell, disabled && { opacity: 0.3 }]}
             >
               <View
                 style={[
@@ -91,12 +102,14 @@ export function MonthCalendar({
           );
         })}
       </View>
-      <View style={styles.legend}>
-        <Legend color={colors.flame} label="Period" />
-        <Legend color={colors.flameSoft} border={colors.flame} label="Predicted" />
-        <Legend color={colors.fertile} label="Fertile" />
-        <Legend color={colors.plum} label="Ovulation" />
-      </View>
+      {legend ? (
+        <View style={styles.legend}>
+          <Legend color={colors.flame} label="Period" />
+          <Legend color={colors.flameSoft} border={colors.flame} label="Predicted" />
+          <Legend color={colors.fertile} label="Fertile" />
+          <Legend color={colors.plum} label="Ovulation" />
+        </View>
+      ) : null}
     </View>
   );
 }
@@ -117,7 +130,7 @@ function Legend({ color, label, border }: { color: string; label: string; border
   );
 }
 
-const useDayStyles = makeStyles((colors) => ({
+const useDayStyles = makeStyles((colors, fonts) => ({
   period: { backgroundColor: colors.flame },
   predicted: {
     backgroundColor: colors.flameSoft,
@@ -129,14 +142,14 @@ const useDayStyles = makeStyles((colors) => ({
   ovulation: { backgroundColor: colors.plum },
 }));
 
-const useStyles = makeStyles((colors) => ({
+const useStyles = makeStyles((colors, fonts) => ({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
-  month: { fontFamily: fonts.display, fontSize: 19, color: colors.ink },
+  month: { ...fonts.display, fontSize: 19, color: colors.ink },
   grid: { flexDirection: 'row', flexWrap: 'wrap' },
   weekday: {
     width: `${100 / 7}%`,
     textAlign: 'center',
-    fontFamily: fonts.bodyBold,
+    ...fonts.bodyBold,
     fontSize: 12,
     color: colors.muted,
     marginBottom: 6,
@@ -151,7 +164,7 @@ const useStyles = makeStyles((colors) => ({
   },
   today: { borderWidth: 2, borderColor: colors.ink },
   selected: { transform: [{ scale: 1.08 }], borderWidth: 2, borderColor: colors.ember },
-  dayText: { fontFamily: fonts.bodyMedium, fontSize: 14, color: colors.ink },
+  dayText: { ...fonts.bodyMedium, fontSize: 14, color: colors.ink },
   dot: {
     position: 'absolute',
     bottom: 1,
@@ -163,5 +176,5 @@ const useStyles = makeStyles((colors) => ({
   legend: { flexDirection: 'row', flexWrap: 'wrap', gap: 14, marginTop: 14, justifyContent: 'center' },
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   legendSwatch: { width: 12, height: 12, borderRadius: 6 },
-  legendText: { fontFamily: fonts.body, fontSize: 12, color: colors.inkSoft },
+  legendText: { ...fonts.body, fontSize: 12, color: colors.inkSoft },
 }));

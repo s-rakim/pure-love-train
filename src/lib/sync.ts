@@ -1,7 +1,7 @@
 import { Directory, File, Paths, UploadType } from 'expo-file-system';
 import { Platform } from 'react-native';
 
-import type { State, SyncState } from './store';
+import type { Moment, State, SyncState } from './store';
 import { applyRecords, backupOf, fingerprint, pendingChanges, recordKey, type PulledRecord } from './syncCore';
 
 type Update = (fn: (s: State) => State) => void;
@@ -75,10 +75,28 @@ const photoDir = () => {
   return dir;
 };
 
-async function uploadPhoto(sync: SyncState, uri: string): Promise<string> {
+const MEDIA_TYPES: Record<string, string> = {
+  jpg: 'image/jpeg',
+  jpeg: 'image/jpeg',
+  png: 'image/png',
+  webp: 'image/webp',
+  heic: 'image/heic',
+  mp4: 'video/mp4',
+  m4v: 'video/mp4',
+  mov: 'video/quicktime',
+  '3gp': 'video/3gpp',
+  webm: 'video/webm',
+};
+
+/** Sends a photo or video to the server and returns its id there. */
+/** When each video that failed to upload may be tried again. */
+const videoRetryAt = new Map<string, number>();
+const VIDEO_RETRY_MS = 10 * 60_000;
+
+async function uploadMedia(sync: SyncState, uri: string): Promise<string> {
   const url = `${sync.serverUrl}/api/photos`;
-  const ext = uri.split('?')[0].split('.').pop()?.toLowerCase();
-  const mime = ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : ext === 'heic' ? 'image/heic' : 'image/jpeg';
+  const ext = uri.split('?')[0].split('.').pop()?.toLowerCase() ?? '';
+  const mime = MEDIA_TYPES[ext] ?? 'image/jpeg';
   if (Platform.OS === 'web') {
     const blob = await (await fetch(uri)).blob();
     const body = await request<{ photoId: string }>(sync, '/api/photos', {
@@ -92,7 +110,19 @@ async function uploadPhoto(sync: SyncState, uri: string): Promise<string> {
     uploadType: UploadType.BINARY_CONTENT,
     headers: { authorization: `Bearer ${sync.token}`, 'content-type': mime },
   });
-  if (result.status !== 201) throw new Error(`Photo upload failed (${result.status})`);
+  if (result.status === 415 && mime.startsWith('video/')) {
+    throw new Error('your sync server needs updating before it can take videos');
+  }
+  if (result.status !== 201) {
+    const reason = (() => {
+      try {
+        return JSON.parse(result.body).error as string | undefined;
+      } catch {
+        return undefined;
+      }
+    })();
+    throw new Error(reason ?? `Upload failed (${result.status})`);
+  }
   return JSON.parse(result.body).photoId;
 }
 
@@ -112,6 +142,27 @@ async function downloadPhoto(sync: SyncState, photoId: string, momentId: string)
     });
   }
   const file = await File.downloadFileAsync(url, new File(photoDir(), `${momentId}.jpg`), { headers, idempotent: true });
+  return file.uri;
+}
+
+/** Where a video can be played from before (or instead of) downloading it. */
+export function remoteVideo(sync: Pick<SyncState, 'serverUrl' | 'token'>, videoId: string) {
+  return { uri: `${sync.serverUrl}/api/photos/${videoId}`, headers: { authorization: `Bearer ${sync.token}` } };
+}
+
+/**
+ * Downloads a moment's video onto this phone and records where it went. Phones
+ * only; the web preview plays videos straight from the server.
+ */
+export async function downloadVideo(sync: SyncState, moment: Moment, update: Update): Promise<string> {
+  if (!moment.videoId) throw new Error('This moment has no video');
+  const { uri, headers } = remoteVideo(sync, moment.videoId);
+  const name = `${moment.id}.${moment.videoExt ?? 'mp4'}`;
+  const file = await File.downloadFileAsync(uri, new File(photoDir(), name), { headers, idempotent: true });
+  update((s) => ({
+    ...s,
+    moments: s.moments.map((m) => (m.id === moment.id && m.videoId === moment.videoId ? { ...m, videoUri: file.uri } : m)),
+  }));
   return file.uri;
 }
 
@@ -174,29 +225,38 @@ async function runSync(getState: () => State, update: Update) {
   try {
     await pull(start, update);
 
-    // Upload photos for moments taken on this phone
-    // A photo that fails stays on this phone and is retried next round; it
-    // shouldn't hold back everything else.
-    const uploaded: Record<string, string> = {};
-    let photoError: string | undefined;
+    // Upload photos and videos for moments taken on this phone.
+    // One that fails stays on this phone and is retried next round; it
+    // shouldn't hold back everything else. A video waits a while first, so a
+    // big file isn't sent again every few seconds.
+    const uploaded: Record<string, Pick<Moment, 'photoId' | 'videoId'>> = {};
+    let mediaError: string | undefined;
     for (const m of getState().moments) {
-      if (m.from !== 'me' || m.photoId) continue;
+      if (m.from !== 'me') continue;
       try {
-        uploaded[m.id] = await uploadPhoto(start, m.uri);
+        if (!m.photoId) uploaded[m.id] = { photoId: await uploadMedia(start, m.uri) };
+        if (m.videoUri && !m.videoId && (videoRetryAt.get(m.id) ?? 0) <= Date.now()) {
+          try {
+            uploaded[m.id] = { ...uploaded[m.id], videoId: await uploadMedia(start, m.videoUri) };
+          } catch (err) {
+            videoRetryAt.set(m.id, Date.now() + VIDEO_RETRY_MS);
+            throw err;
+          }
+        }
       } catch (err) {
-        photoError = `A photo didn't upload: ${err instanceof Error ? err.message : String(err)}`;
+        mediaError = `A moment didn't upload: ${err instanceof Error ? err.message : String(err)}`;
       }
     }
-    const withPhotos = (s: State): State =>
+    const withMedia = (s: State): State =>
       Object.keys(uploaded).length
-        ? { ...s, moments: s.moments.map((m) => (uploaded[m.id] ? { ...m, photoId: uploaded[m.id] } : m)) }
+        ? { ...s, moments: s.moments.map((m) => (uploaded[m.id] ? { ...m, ...uploaded[m.id] } : m)) }
         : s;
-    update(withPhotos);
+    update(withMedia);
 
-    // Push (state updates land asynchronously, so apply the new photo ids here too)
-    const changes = pendingChanges(withPhotos(getState()));
+    // Push (state updates land asynchronously, so apply the new ids here too)
+    const changes = pendingChanges(withMedia(getState()));
     if (changes.length) {
-      await request<{ results: { kind: string; id: string; ok: boolean }[] }>(
+      const { results } = await request<{ results: { kind: string; id: string; ok: boolean; error?: string }[] }>(
         start,
         '/api/sync',
         { method: 'POST', body: JSON.stringify({ records: changes }) },
@@ -206,12 +266,26 @@ async function runSync(getState: () => State, update: Update) {
         const pushed = { ...s.sync.pushed };
         changes.forEach((c, i) => {
           const key = recordKey(c);
-          // Rejected records are marked as sent too, so one bad record isn't retried forever.
+          // A server that doesn't know this kind yet hasn't been updated; send it again once it is.
+          if (results?.[i]?.error === 'Unknown record') return;
+          // Other rejections are marked as sent too, so one bad record isn't retried forever.
           if (c.deleted) delete pushed[key];
           else pushed[key] = fingerprint(c.data);
         });
         return { ...s, sync: { ...s.sync, pushed } };
       });
+    }
+
+    // Videos are big, so they come down last and a slow one never holds up the rest.
+    if (Platform.OS !== 'web') {
+      for (const m of getState().moments) {
+        if (!m.videoId || m.videoUri) continue;
+        try {
+          await downloadVideo(start, m, update);
+        } catch (err) {
+          mediaError ??= `A video didn't download: ${err instanceof Error ? err.message : String(err)}`;
+        }
+      }
     }
 
     // Keep the private backup current, for moving to a new phone.
@@ -227,7 +301,7 @@ async function runSync(getState: () => State, update: Update) {
       }
     }
 
-    update((s) => (s.sync ? { ...s, sync: { ...s.sync, lastSyncAt: new Date().toISOString(), error: photoError } } : s));
+    update((s) => (s.sync ? { ...s, sync: { ...s.sync, lastSyncAt: new Date().toISOString(), error: mediaError } } : s));
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     update((s) => (s.sync ? { ...s, sync: { ...s.sync, error: message } } : s));

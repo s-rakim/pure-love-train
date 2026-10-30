@@ -4,12 +4,12 @@ import { useState } from 'react';
 import { Text, View } from 'react-native';
 
 import { Flame } from '../components/Flame';
-import { Body, Button, Card, Chip, Field, Screen, Title } from '../components/ui';
+import { Body, Button, Card, Chip, Field, Screen, Title, Wordmark } from '../components/ui';
 import { restoreWithGoogle } from '../lib/account';
 import { isValidKey } from '../lib/dates';
 import { useStore } from '../lib/store';
 import { normalizeServerUrl } from '../lib/sync';
-import { fonts, makeStyles, space, useTheme } from '../theme';
+import { makeStyles, space, useTheme } from '../theme';
 
 export default function Onboarding() {
   const { colors } = useTheme();
@@ -58,6 +58,7 @@ export default function Onboarding() {
     <Screen style={{ paddingTop: space(10), gap: space(6) }}>
       <View style={{ gap: space(2), alignItems: 'center' }}>
         <Flame size={84} />
+        <Wordmark />
         <Title style={{ textAlign: 'center' }}>A little space{'\n'}just for two.</Title>
         <Body style={{ textAlign: 'center' }}>
           Daily questions, shared moments, and your cycle, all in one cosy place.
@@ -102,7 +103,7 @@ export default function Onboarding() {
         {restoring ? (
           <>
             <Field
-              label="Your Pure Love server"
+              label="Your sync server"
               value={serverUrl}
               onChangeText={setServerUrl}
               placeholder="http://100.101.102.103:8787"
@@ -132,7 +133,7 @@ export default function Onboarding() {
   );
 }
 
-const useStyles = makeStyles((colors) => ({
-  label: { fontFamily: fonts.bodyBold, fontSize: 13, color: colors.inkSoft },
-  error: { fontFamily: fonts.body, fontSize: 13, color: colors.flameDeep },
+const useStyles = makeStyles((colors, fonts) => ({
+  label: { ...fonts.bodyBold, fontSize: 13, color: colors.inkSoft },
+  error: { ...fonts.body, fontSize: 13, color: colors.flameDeep },
 }));

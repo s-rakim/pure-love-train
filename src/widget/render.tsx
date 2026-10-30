@@ -12,6 +12,7 @@ export function momentWidget(state: State, info: Pick<WidgetInfo, 'width' | 'hei
       moment={moment}
       partnerName={state.names.partner}
       colors={colors}
+      font={state.font ?? 'phone'}
       width={info.width}
       height={info.height}
     />

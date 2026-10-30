@@ -1,9 +1,9 @@
 {
   "expo": {
-    "name": "Pure Love",
+    "name": "You&I💞",
     "slug": "pure-love",
     "scheme": "purelove",
-    "version": "1.4.0",
+    "version": "1.5.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -19,7 +19,7 @@
     },
     "android": {
       "package": "com.purelove.app",
-      "versionCode": 140,
+      "versionCode": 150,
       "adaptiveIcon": {
         "backgroundColor": "#0B0A09",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -39,8 +39,8 @@
       [
         "expo-image-picker",
         {
-          "photosPermission": "Pick photos to share as moments with your partner.",
-          "cameraPermission": "Snap photos to share as moments with your partner."
+          "photosPermission": "Pick photos and videos to share as moments with your partner.",
+          "cameraPermission": "Snap photos and record videos to share as moments with your partner."
         }
       ],
       [
@@ -55,7 +55,7 @@
         "expo-media-library",
         {
           "photosPermission": "Pick photos to share as moments with your partner.",
-          "savePhotosPermission": "Save moments to your photos.",
+          "savePhotosPermission": "Save moments to your photos and videos.",
           "isAccessMediaLocationEnabled": false,
           "granularPermissions": [
             "photo"
@@ -71,7 +71,7 @@
           "widgets": [
             {
               "name": "Moment",
-              "label": "Pure Love",
+              "label": "You&I💞",
               "description": "Your partner's latest moment, right on your home screen.",
               "minWidth": "110dp",
               "minHeight": "110dp",

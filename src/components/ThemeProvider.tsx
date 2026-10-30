@@ -3,16 +3,17 @@ import { useEffect, useMemo, type ReactNode } from 'react';
 import { Appearance, Platform, useColorScheme } from 'react-native';
 
 import { useStore } from '../lib/store';
-import { palettes, ThemeContext, type Scheme } from '../theme';
+import { fontSets, palettes, ThemeContext, type Scheme } from '../theme';
 
-/** Picks light or dark from the saved choice, falling back to the phone's own setting. */
+/** Picks light or dark (and the font) from the saved choices, falling back to the phone's own settings. */
 export function ThemeProvider({ children }: { children: ReactNode }) {
   const { state } = useStore();
   const system = useColorScheme();
   const choice = state.appearance ?? 'system';
   // Dark is the original look, so it wins when the phone doesn't say.
   const scheme: Scheme = choice === 'system' ? (system === 'light' ? 'light' : 'dark') : choice;
-  const theme = useMemo(() => ({ scheme, colors: palettes[scheme] }), [scheme]);
+  const font = state.font ?? 'phone';
+  const theme = useMemo(() => ({ scheme, colors: palettes[scheme], fonts: fontSets[font] }), [scheme, font]);
 
   useEffect(() => {
     // Lets the phone's own pop-ups (alerts, the keyboard) match a look picked in Settings.

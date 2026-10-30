@@ -5,7 +5,7 @@ import { Body, Button, Card, Chip, Eyebrow, Field, Screen, SectionTitle } from '
 import { relativeTime } from '../lib/dates';
 import { useNames } from '../lib/hooks';
 import { newId, useStore, type Coupon } from '../lib/store';
-import { fonts, makeStyles, radius, space, useTheme } from '../theme';
+import { makeStyles, radius, space, useTheme } from '../theme';
 
 const IDEAS = [
   { emoji: '🍳', text: 'Breakfast in bed' },
@@ -125,7 +125,7 @@ function Ticket({ coupon, label, children }: { coupon: Coupon; label: string; ch
   );
 }
 
-const useStyles = makeStyles((colors) => ({
+const useStyles = makeStyles((colors, fonts) => ({
   ticket: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -138,6 +138,6 @@ const useStyles = makeStyles((colors) => ({
     backgroundColor: colors.surface,
   },
   emoji: { fontSize: 28 },
-  text: { fontFamily: fonts.bodyBold, fontSize: 16, color: colors.ink },
-  meta: { fontFamily: fonts.body, fontSize: 12, color: colors.muted },
+  text: { ...fonts.bodyBold, fontSize: 16, color: colors.ink },
+  meta: { ...fonts.body, fontSize: 12, color: colors.muted },
 }));

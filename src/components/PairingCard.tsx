@@ -6,7 +6,7 @@ import { relativeTime } from '../lib/dates';
 import { useNames } from '../lib/hooks';
 import { useStore } from '../lib/store';
 import { createSpace, joinSpace, normalizeServerUrl, syncOnce } from '../lib/sync';
-import { fonts, makeStyles, radius, space, useTheme } from '../theme';
+import { makeStyles, radius, space, useTheme } from '../theme';
 import { Body, Button, Card, Eyebrow, Field, Row } from './ui';
 
 /** Connects this phone to the couple's sync server and shows how pairing is going. */
@@ -67,7 +67,7 @@ export function PairingCard() {
       <Card>
         <Eyebrow>Sync with {names.partner}</Eyebrow>
         <Body>
-          Enter the address of your Pure Love server, like the Tailscale address of the computer running it. One of
+          Enter the address of your sync server, like the Tailscale address of the computer running it. One of
           you creates a space, the other joins with the code.
         </Body>
         <Field
@@ -144,7 +144,7 @@ export function PairingCard() {
   );
 }
 
-const useStyles = makeStyles((colors) => ({
+const useStyles = makeStyles((colors, fonts) => ({
   code: {
     alignSelf: 'center',
     backgroundColor: colors.flameSoft,
@@ -152,6 +152,6 @@ const useStyles = makeStyles((colors) => ({
     paddingHorizontal: space(6),
     paddingVertical: space(3),
   },
-  codeText: { fontFamily: fonts.display, fontSize: 30, letterSpacing: 6, color: colors.flameDeep },
-  error: { fontFamily: fonts.body, fontSize: 13, lineHeight: 18, color: colors.flameDeep },
+  codeText: { ...fonts.display, fontSize: 30, letterSpacing: 6, color: colors.flameDeep },
+  error: { ...fonts.body, fontSize: 13, lineHeight: 18, color: colors.flameDeep },
 }));

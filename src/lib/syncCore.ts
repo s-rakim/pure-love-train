@@ -1,6 +1,6 @@
 import { predict } from './cycle.ts';
 import { todayKey, type DateKey } from './dates.ts';
-import type { Coupon, Moment, Note, PartnerCycle, Person, State } from './store';
+import type { Coupon, Letter, Moment, Note, PartnerCycle, Person, State } from './store';
 
 /** A record as the sync server stores it. */
 export type SyncRecord = {
@@ -13,7 +13,7 @@ export type SyncRecord = {
 export type PulledRecord = SyncRecord & { author: string; seq: number };
 
 /** Kinds either partner may edit; everything else belongs to its author. */
-const SHARED = new Set(['dateIdea', 'couple', 'coupon']);
+const SHARED = new Set(['dateIdea', 'couple', 'coupon', 'letter']);
 
 export const recordKey = (r: { kind: string; id: string }) => `${r.kind}:${r.id}`;
 export const fingerprint = (data: unknown) => JSON.stringify(data ?? null);
@@ -33,8 +33,15 @@ export function outgoingRecords(s: State, today: DateKey = todayKey()): Map<stri
   for (const n of s.notes) {
     if (n.from === 'me') add('note', n.id, { text: n.text, createdAt: n.createdAt });
   }
+  for (const [pair, pick] of Object.entries(s.picks ?? {})) {
+    if (pick.me) add('pick', `${me}:${pair}`, { pair, choice: pick.me });
+  }
   for (const m of s.moments) {
-    if (m.from === 'me' && m.photoId) add('moment', m.id, { photoId: m.photoId, caption: m.caption, createdAt: m.createdAt });
+    if (m.from !== 'me' || !m.photoId) continue;
+    const base = { photoId: m.photoId, caption: m.caption, createdAt: m.createdAt };
+    if (!m.videoUri && !m.videoId) add('moment', m.id, base);
+    // A video goes out once both its still frame and the video itself are on the server.
+    else if (m.videoId) add('moment', m.id, { ...base, videoId: m.videoId, videoExt: m.videoExt ?? 'mp4' });
   }
 
   const { tracking, shareWithPartner, periods, settings } = s.cycle;
@@ -45,17 +52,26 @@ export function outgoingRecords(s: State, today: DateKey = todayKey()): Map<stri
       periodEnd: prediction.periodEnd,
       nextPeriod: prediction.nextPeriod,
       ovulation: prediction.ovulation,
+      fertileStart: prediction.fertileStart,
+      fertileEnd: prediction.fertileEnd,
+      nextLatest: prediction.nextLatest,
     };
     add('cycle', me, shared);
   }
 
   add('couple', 'settings', { togetherSince: s.togetherSince ?? null });
+  if (s.nextDate) add('couple', 'next', { date: s.nextDate.date, label: s.nextDate.label });
   for (const d of s.dateIdeas) add('dateIdea', d.id, { text: d.text, done: d.done });
   for (const c of s.coupons ?? []) {
     // Either of you may update a coupon (the giver writes it, the other redeems it), so the
     // giver travels inside the data. Field order matters: it must match what was pulled.
     const giver = c.from === 'me' ? me : c.giver;
     if (giver) add('coupon', c.id, { emoji: c.emoji, text: c.text, giver, createdAt: c.createdAt, redeemedAt: c.redeemedAt ?? null });
+  }
+  for (const l of s.letters ?? []) {
+    // Like coupons: the writer seals it and the reader marks it opened.
+    const writer = l.from === 'me' ? me : l.writer;
+    if (writer) add('letter', l.id, { when: l.when, text: l.text, writer, createdAt: l.createdAt, openedAt: l.openedAt ?? null });
   }
   return out;
 }
@@ -65,10 +81,16 @@ export function outgoingRecords(s: State, today: DateKey = todayKey()): Map<stri
  * saved privately on the server under your account so a new phone can get it back.
  * Everything else comes back from the shared records.
  */
-export type Backup = Pick<State, 'names' | 'cycle'> & { togetherSince: DateKey | null; appearance: string };
+export type Backup = Pick<State, 'names' | 'cycle'> & { togetherSince: DateKey | null; appearance: string; font?: string };
 
 export function backupOf(s: State): Backup {
-  return { names: s.names, togetherSince: s.togetherSince ?? null, cycle: s.cycle, appearance: s.appearance ?? 'system' };
+  return {
+    names: s.names,
+    togetherSince: s.togetherSince ?? null,
+    cycle: s.cycle,
+    appearance: s.appearance ?? 'system',
+    font: s.font ?? 'phone',
+  };
 }
 
 /** Records that changed since they were last pushed, including deletions. */
@@ -149,20 +171,36 @@ export function applyRecords(
         break;
       }
       case 'moment': {
+        const before = next.moments.find((m) => m.id === r.id);
         const moments = next.moments.filter((m) => m.id !== r.id);
         const uri = photoUris[r.id];
         if (data && uri) {
-          moments.push({
+          const moment: Moment = {
             id: r.id,
             uri,
             caption: data.caption ?? '',
             from: side,
             createdAt: data.createdAt,
             photoId: data.photoId,
-          } satisfies Moment);
+          };
+          if (data.videoId) {
+            // The video itself downloads separately; keep a copy that's already here.
+            moment.videoId = data.videoId;
+            moment.videoExt = data.videoExt ?? 'mp4';
+            if (before && before.videoId === data.videoId && before.videoUri) moment.videoUri = before.videoUri;
+          }
+          moments.push(moment);
         }
         moments.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
         next = { ...next, moments };
+        break;
+      }
+      case 'pick': {
+        const pair = (data?.pair ?? r.id.split(':').pop()) as string;
+        const picks = { ...next.picks?.[pair] };
+        if (data) picks[side] = data.choice;
+        else delete picks[side];
+        next = { ...next, picks: { ...next.picks, [pair]: picks } };
         break;
       }
       case 'cycle':
@@ -170,6 +208,10 @@ export function applyRecords(
         if (!mine) next = { ...next, partnerCycle: data ?? undefined };
         break;
       case 'couple':
+        if (r.id === 'next') {
+          next = { ...next, nextDate: data ? { date: data.date, label: data.label ?? '' } : undefined };
+          break;
+        }
         // An empty date from the partner never wipes one set on this phone; ours gets pushed instead.
         if (data?.togetherSince) next = { ...next, togetherSince: data.togetherSince };
         else if (next.togetherSince) delete pushed[key];
@@ -189,6 +231,23 @@ export function applyRecords(
         }
         coupons.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
         next = { ...next, coupons };
+        break;
+      }
+      case 'letter': {
+        const letters = (next.letters ?? []).filter((l) => l.id !== r.id);
+        if (data) {
+          letters.push({
+            id: r.id,
+            when: data.when,
+            text: data.text,
+            from: data.writer === me ? 'me' : 'partner',
+            writer: data.writer,
+            createdAt: data.createdAt,
+            openedAt: data.openedAt ?? undefined,
+          } satisfies Letter);
+        }
+        letters.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+        next = { ...next, letters };
         break;
       }
       case 'dateIdea': {

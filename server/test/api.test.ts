@@ -119,6 +119,20 @@ describe('pairing and sync', () => {
       json: { records: [{ kind: 'coupon', id: 'c1', data: { ...gift, redeemedAt: '2026-10-30T12:00:00Z' } }] },
     });
     assert.equal(redeemed.body.results[0].ok, true, 'the partner can redeem a coupon they were given');
+
+    const letter = { when: 'Open when you miss me', text: 'Look up.', writer: a.memberId, createdAt: '2026-10-30T10:00:00Z', openedAt: null };
+    await call('/api/sync', { method: 'POST', token: a.token, json: { records: [{ kind: 'letter', id: 'l1', data: letter }] } });
+    const opened = await call('/api/sync', {
+      method: 'POST',
+      token: b.token,
+      json: { records: [{ kind: 'letter', id: 'l1', data: { ...letter, openedAt: '2026-10-30T12:00:00Z' } }] },
+    });
+    assert.equal(opened.body.results[0].ok, true, 'the reader can mark a letter opened');
+
+    const pick = { kind: 'pick', id: `${a.memberId}:coffee-tea`, data: { pair: 'coffee-tea', choice: 'a' } };
+    assert.equal((await call('/api/sync', { method: 'POST', token: a.token, json: { records: [pick] } })).body.results[0].ok, true);
+    const changed = await call('/api/sync', { method: 'POST', token: b.token, json: { records: [{ ...pick, data: { pair: 'coffee-tea', choice: 'b' } }] } });
+    assert.equal(changed.body.results[0].ok, false, 'a pick belongs to whoever made it');
   });
 
   it('stores photos privately for the couple', async () => {
@@ -133,6 +147,36 @@ describe('pairing and sync', () => {
     assert.equal((await call(`/api/photos/${up.body.photoId}`, { token: outsider.token })).status, 404);
     const text = await call('/api/photos', { method: 'POST', token: a.token, headers: { 'content-type': 'text/plain' }, body: 'x' });
     assert.equal(text.status, 415);
+  });
+
+  it('stores videos and serves them in pieces for the player', async () => {
+    const bytes = new Uint8Array(1000).map((_, i) => i % 251);
+    const up = await call('/api/photos', { method: 'POST', token: a.token, headers: { 'content-type': 'video/mp4' }, body: bytes });
+    assert.equal(up.status, 201);
+    const url = `/api/photos/${up.body.photoId}`;
+
+    const whole = await fetch(base + url, { headers: { authorization: `Bearer ${b.token}` } });
+    assert.equal(whole.status, 200);
+    assert.equal(whole.headers.get('content-type'), 'video/mp4');
+    assert.equal(whole.headers.get('accept-ranges'), 'bytes');
+    assert.deepEqual(new Uint8Array(await whole.arrayBuffer()), bytes);
+
+    const piece = await fetch(base + url, { headers: { authorization: `Bearer ${b.token}`, range: 'bytes=100-199' } });
+    assert.equal(piece.status, 206);
+    assert.equal(piece.headers.get('content-range'), 'bytes 100-199/1000');
+    assert.deepEqual(new Uint8Array(await piece.arrayBuffer()), bytes.slice(100, 200));
+
+    const rest = await fetch(base + url, { headers: { authorization: `Bearer ${b.token}`, range: 'bytes=900-' } });
+    assert.deepEqual(new Uint8Array(await rest.arrayBuffer()), bytes.slice(900));
+    const tail = await fetch(base + url, { headers: { authorization: `Bearer ${b.token}`, range: 'bytes=-10' } });
+    assert.deepEqual(new Uint8Array(await tail.arrayBuffer()), bytes.slice(990));
+
+    const past = await fetch(base + url, { headers: { authorization: `Bearer ${b.token}`, range: 'bytes=5000-' } });
+    assert.equal(past.status, 416);
+    await past.arrayBuffer();
+
+    const empty = await call('/api/photos', { method: 'POST', token: a.token, headers: { 'content-type': 'video/mp4' }, body: new Uint8Array(0) });
+    assert.equal(empty.status, 400);
   });
 });
 

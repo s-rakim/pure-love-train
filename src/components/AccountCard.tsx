@@ -6,7 +6,7 @@ import { linkGoogle, unlinkGoogle } from '../lib/account';
 import { relativeTime } from '../lib/dates';
 import { useStore } from '../lib/store';
 import { syncOnce } from '../lib/sync';
-import { fonts, makeStyles, useTheme } from '../theme';
+import { makeStyles, useTheme } from '../theme';
 import { Body, Button, Card, Eyebrow } from './ui';
 
 /** Google sign-in, so everything can follow you to a new phone. */
@@ -83,7 +83,7 @@ export function AccountCard() {
       ) : (
         <>
           <Body style={{ fontSize: 14 }}>
-            Sign in with Google to keep a private backup on your Pure Love server, including your cycle logs. On a new
+            Sign in with Google to keep a private backup on your sync server, including your cycle logs. On a new
             phone, sign in again and everything comes back.
           </Body>
           <Button
@@ -100,6 +100,6 @@ export function AccountCard() {
   );
 }
 
-const useStyles = makeStyles((colors) => ({
-  error: { fontFamily: fonts.body, fontSize: 13, lineHeight: 18, color: colors.flameDeep },
+const useStyles = makeStyles((colors, fonts) => ({
+  error: { ...fonts.body, fontSize: 13, lineHeight: 18, color: colors.flameDeep },
 }));

@@ -1,19 +1,25 @@
 import { Ionicons } from '@expo/vector-icons';
+import Constants from 'expo-constants';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { Alert, Platform, Pressable, Text, View } from 'react-native';
 
 import { AccountCard } from '../components/AccountCard';
 import { PairingCard } from '../components/PairingCard';
-import { Body, Button, Card, Chip, Eyebrow, Field, Row, Screen } from '../components/ui';
+import { Body, Button, Card, Chip, Eyebrow, Field, Row, Screen, Wordmark } from '../components/ui';
 import { isValidKey } from '../lib/dates';
 import { useStore } from '../lib/store';
-import { type AppearancePref, fonts, makeStyles, radius, space, useTheme } from '../theme';
+import { type AppearancePref, type FontPref, makeStyles, radius, space, useTheme } from '../theme';
 
 const APPEARANCES: { value: AppearancePref; label: string }[] = [
   { value: 'system', label: 'System' },
   { value: 'light', label: 'Light' },
   { value: 'dark', label: 'Dark' },
+];
+
+const FONTS: { value: FontPref; label: string }[] = [
+  { value: 'phone', label: "My phone's font" },
+  { value: 'classic', label: 'DM Sans' },
 ];
 
 export default function Settings() {
@@ -90,6 +96,20 @@ export default function Settings() {
         <Body muted style={{ fontSize: 13 }}>
           System follows your phone's light or dark setting.
         </Body>
+        <Eyebrow>Font</Eyebrow>
+        <Row>
+          {FONTS.map((f) => (
+            <Chip
+              key={f.value}
+              label={f.label}
+              selected={(state.font ?? 'phone') === f.value}
+              onPress={() => update((s) => ({ ...s, font: f.value }))}
+            />
+          ))}
+        </Row>
+        <Body muted style={{ fontSize: 13 }}>
+          Your phone's font is whatever you've picked in your phone's settings, the same as on your home screen.
+        </Body>
       </Card>
 
       <Card>
@@ -122,6 +142,11 @@ export default function Settings() {
       </Card>
 
       <Button label="Erase all data" variant="ghost" onPress={confirmReset} />
+
+      <View style={{ alignItems: 'center', gap: space(1) }}>
+        <Wordmark size={22} />
+        <Body muted style={{ fontSize: 12 }}>Version {Constants.expoConfig?.version}</Body>
+      </View>
     </Screen>
   );
 }
@@ -145,7 +170,7 @@ function Stepper({ label, value, onChange }: { label: string; value: number; onC
   );
 }
 
-const useStyles = makeStyles((colors) => ({
+const useStyles = makeStyles((colors, fonts) => ({
   step: {
     width: 34,
     height: 34,
@@ -154,5 +179,5 @@ const useStyles = makeStyles((colors) => ({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  stepValue: { fontFamily: fonts.bodyBold, fontSize: 15, color: colors.ink, minWidth: 64, textAlign: 'center' },
+  stepValue: { ...fonts.bodyBold, fontSize: 15, color: colors.ink, minWidth: 64, textAlign: 'center' },
 }));

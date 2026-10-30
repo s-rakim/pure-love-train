@@ -2,16 +2,18 @@ import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { useVideoPlayer, VideoView } from 'expo-video';
+import { Alert, Platform, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
 import { requestPinWidget } from 'react-native-android-widget';
 
+import { PlayBadge } from '../../components/MomentVideo';
 import { PhotoWidget } from '../../components/PhotoWidget';
 import { Body, Button, Card, Eyebrow, Field, Row, Screen, Title } from '../../components/ui';
 import { relativeTime } from '../../lib/dates';
 import { useNames } from '../../lib/hooks';
-import { deletePhoto, persistPhoto, pickPhoto } from '../../lib/moments';
-import { newId, useStore, type Moment } from '../../lib/store';
-import { fonts, makeStyles, radius, space, useTheme } from '../../theme';
+import { clipLength, deleteMomentFiles, MAX_VIDEO_SECONDS, persistDraft, pickMoment, type Draft } from '../../lib/moments';
+import { isVideo, newId, useStore, type Moment } from '../../lib/store';
+import { makeStyles, radius, space, useTheme } from '../../theme';
 import { WIDGET_NAME } from '../../widget/MomentWidget';
 
 export default function Moments() {
@@ -19,34 +21,34 @@ export default function Moments() {
   const styles = useStyles();
   const { state, update } = useStore();
   const names = useNames();
-  const [draftUri, setDraftUri] = useState<string | null>(null);
+  const [draft, setDraft] = useState<Draft | null>(null);
   const [caption, setCaption] = useState('');
   const [busy, setBusy] = useState(false);
 
   const latestFromPartner = state.moments.find((m) => m.from === 'partner');
   const latestFromMe = state.moments.find((m) => m.from === 'me');
 
-  const capture = async (source: 'camera' | 'library') => {
+  const capture = async (source: 'photo' | 'video' | 'library') => {
     try {
-      const uri = await pickPhoto(source);
-      if (uri) setDraftUri(uri);
+      const picked = await pickMoment(source);
+      if (picked) setDraft(picked);
     } catch (err) {
-      Alert.alert('Could not open the camera', err instanceof Error ? err.message : String(err));
+      Alert.alert("Couldn't add that moment", err instanceof Error ? err.message : String(err));
     }
   };
 
   const send = async () => {
-    if (!draftUri) return;
+    if (!draft) return;
     setBusy(true);
     try {
       const id = newId();
-      const uri = await persistPhoto(draftUri, id);
-      const moment: Moment = { id, uri, caption: caption.trim(), from: 'me', createdAt: new Date().toISOString() };
+      const files = await persistDraft(draft, id);
+      const moment: Moment = { id, ...files, caption: caption.trim(), from: 'me', createdAt: new Date().toISOString() };
       update((s) => ({ ...s, moments: [moment, ...s.moments] }));
-      setDraftUri(null);
+      setDraft(null);
       setCaption('');
     } catch (err) {
-      Alert.alert('Could not save the photo', err instanceof Error ? err.message : String(err));
+      Alert.alert("Couldn't save that moment", err instanceof Error ? err.message : String(err));
     } finally {
       setBusy(false);
     }
@@ -57,14 +59,14 @@ export default function Moments() {
     if (!pinned) {
       Alert.alert(
         'Add it from your home screen',
-        "Press and hold an empty spot on your home screen, tap Widgets, then find Pure Love.",
+        "Press and hold an empty spot on your home screen, tap Widgets, then find You&I💞.",
       );
     }
   };
 
   const remove = (moment: Moment) => {
     const doRemove = () => {
-      deletePhoto(moment.uri);
+      deleteMomentFiles(moment);
       update((s) => ({ ...s, moments: s.moments.filter((m) => m.id !== moment.id) }));
     };
     if (Platform.OS === 'web') return doRemove();
@@ -78,7 +80,7 @@ export default function Moments() {
     <Screen>
       <View style={{ gap: space(1) }}>
         <Title>Moments</Title>
-        <Body muted>Little live photos for each other's home screen.</Body>
+        <Body muted>Little photos and videos for each other's home screen.</Body>
       </View>
 
       <Card tone="blush" style={{ alignItems: 'center', paddingVertical: space(6) }}>
@@ -99,12 +101,19 @@ export default function Moments() {
         ) : null}
       </Card>
 
-      {draftUri ? (
+      {draft ? (
         <Card>
-          <Image source={{ uri: draftUri }} style={styles.draft} contentFit="cover" />
+          {draft.video ? (
+            <View style={styles.draft}>
+              <DraftVideo uri={draft.video.uri} style={StyleSheet.absoluteFill} />
+              <Text style={styles.length}>{clipLength(draft.video.seconds)}</Text>
+            </View>
+          ) : (
+            <Image source={{ uri: draft.uri }} style={styles.draft} contentFit="cover" />
+          )}
           <Field value={caption} onChangeText={setCaption} placeholder="Add a caption…" maxLength={40} />
           <Row>
-            <Button label="Retake" variant="ghost" onPress={() => setDraftUri(null)} style={{ flex: 1 }} />
+            <Button label="Retake" variant="ghost" onPress={() => setDraft(null)} style={{ flex: 1 }} />
             <Button
               label={busy ? 'Sending…' : `Send to ${names.partner}`}
               onPress={send}
@@ -115,26 +124,38 @@ export default function Moments() {
           </Row>
         </Card>
       ) : (
-        <Row>
+        <View style={{ gap: space(3) }}>
+          <Row>
+            <Button
+              label="Photo"
+              onPress={() => capture('photo')}
+              style={{ flex: 1 }}
+              icon={<Ionicons name="camera" size={20} color={colors.white} />}
+            />
+            {Platform.OS !== 'web' ? (
+              <Button
+                label="Video"
+                onPress={() => capture('video')}
+                style={{ flex: 1 }}
+                icon={<Ionicons name="videocam" size={20} color={colors.white} />}
+              />
+            ) : null}
+          </Row>
           <Button
-            label="Snap"
-            onPress={() => capture('camera')}
-            style={{ flex: 1 }}
-            icon={<Ionicons name="camera" size={20} color={colors.white} />}
-          />
-          <Button
-            label="Choose"
+            label="Choose from your phone"
             variant="secondary"
             onPress={() => capture('library')}
-            style={{ flex: 1 }}
             icon={<Ionicons name="images" size={20} color={colors.flameDeep} />}
           />
-        </Row>
+          {Platform.OS !== 'web' ? (
+            <Body muted style={{ fontSize: 12, textAlign: 'center' }}>Videos can be up to {MAX_VIDEO_SECONDS} seconds.</Body>
+          ) : null}
+        </View>
       )}
 
       <Eyebrow color={colors.inkSoft}>History</Eyebrow>
       {state.moments.length === 0 ? (
-        <Body muted>Your shared photos will collect here.</Body>
+        <Body muted>Your shared photos and videos will collect here.</Body>
       ) : (
         <View style={styles.grid}>
           {state.moments.map((m) => (
@@ -146,6 +167,7 @@ export default function Moments() {
               style={styles.tile}
             >
               <Image source={{ uri: m.uri }} style={StyleSheet.absoluteFill} contentFit="cover" />
+              {isVideo(m) ? <PlayBadge size={30} /> : null}
               <View style={styles.tileMeta}>
                 <Text style={styles.tileText} numberOfLines={1}>
                   {m.from === 'me' ? names.me : names.partner}
@@ -157,14 +179,39 @@ export default function Moments() {
         </View>
       )}
       {state.moments.length > 0 ? (
-        <Body muted style={{ fontSize: 12, textAlign: 'center' }}>Tap a photo to see it full size and save it. Press and hold to delete.</Body>
+        <Body muted style={{ fontSize: 12, textAlign: 'center' }}>
+          Tap one to see it full size, play it and save it. Press and hold to delete.
+        </Body>
       ) : null}
     </Screen>
   );
 }
 
-const useStyles = makeStyles((colors) => ({
-  draft: { width: '100%', aspectRatio: 1, borderRadius: radius.md },
+/** The clip about to be sent, playing quietly on a loop so you can check it. */
+function DraftVideo({ uri, style }: { uri: string; style: StyleProp<ViewStyle> }) {
+  const player = useVideoPlayer(uri, (p) => {
+    p.loop = true;
+    p.muted = true;
+    p.play();
+  });
+  return <VideoView player={player} style={style} contentFit="cover" nativeControls={false} />;
+}
+
+const useStyles = makeStyles((colors, fonts) => ({
+  draft: { width: '100%', aspectRatio: 1, borderRadius: radius.md, overflow: 'hidden', backgroundColor: colors.black },
+  length: {
+    position: 'absolute',
+    right: space(3),
+    bottom: space(3),
+    ...fonts.bodyBold,
+    fontSize: 12,
+    color: colors.white,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: radius.pill,
+    paddingHorizontal: space(2),
+    paddingVertical: 2,
+    overflow: 'hidden',
+  },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: space(2) },
   tile: {
     width: '31.8%',
@@ -182,5 +229,5 @@ const useStyles = makeStyles((colors) => ({
     paddingHorizontal: 6,
     paddingVertical: 3,
   },
-  tileText: { fontFamily: fonts.bodyMedium, fontSize: 10, color: colors.white },
+  tileText: { ...fonts.bodyMedium, fontSize: 10, color: colors.white },
 }));

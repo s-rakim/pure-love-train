@@ -2,11 +2,10 @@ import { FlexWidget, ImageWidget, OverlapWidget, TextWidget, type ColorProp } fr
 
 import { relativeTime } from '../lib/dates';
 import type { Moment } from '../lib/store';
-import type { Palette } from '../theme';
+import type { FontPref, Palette } from '../theme';
 
 export const WIDGET_NAME = 'Moment';
 
-const FONT = 'DMSans_700Bold';
 const RADIUS = 24;
 
 type Props = {
@@ -14,6 +13,8 @@ type Props = {
   moment?: Moment;
   partnerName: string;
   colors: Palette;
+  /** Text in the phone's own font, or in DM Sans (bundled with the widget) to match the app. */
+  font: FontPref;
   width: number;
   height: number;
 };
@@ -22,11 +23,14 @@ const hex = (c: string) => c as ColorProp;
 
 /**
  * The home screen widget: whatever your partner last sent, filling the tile, with their
- * name and when. Tapping it opens Moments.
+ * name and when. A video shows as a still frame. Tapping it opens that moment in the app
+ * (where a video plays), or Moments while there's nothing yet.
  */
-export function MomentWidget({ moment, partnerName, colors, width, height }: Props) {
-  const open = { clickAction: 'OPEN_URI', clickActionData: { uri: 'purelove://moments' } } as const;
+export function MomentWidget({ moment, partnerName, colors, font, width, height }: Props) {
+  const uri = moment ? `purelove://moment/${moment.id}` : 'purelove://moments';
+  const open = { clickAction: 'OPEN_URI', clickActionData: { uri } } as const;
   const name = partnerName || 'your partner';
+  const bold = font === 'classic' ? { fontFamily: 'DMSans_700Bold' } : { fontWeight: 'bold' as const };
 
   if (!moment) {
     return (
@@ -48,13 +52,14 @@ export function MomentWidget({ moment, partnerName, colors, width, height }: Pro
         <TextWidget
           text={`Waiting for a moment from ${name}`}
           maxLines={3}
-          style={{ fontSize: 13, fontFamily: FONT, color: hex(colors.flameDeep), textAlign: 'center' }}
+          style={{ fontSize: 13, ...bold, color: hex(colors.flameDeep), textAlign: 'center' }}
         />
       </FlexWidget>
     );
   }
 
-  // Photos are square, so draw a square big enough to cover the tile and let it crop.
+  // Photos are square (and a video's still frame is cropped the same way), so draw a square big
+  // enough to cover the tile and let it crop.
   const side = Math.ceil(Math.max(width, height));
   return (
     <OverlapWidget
@@ -100,7 +105,7 @@ export function MomentWidget({ moment, partnerName, colors, width, height }: Pro
               text={moment.caption}
               maxLines={1}
               truncate="END"
-              style={{ fontSize: 12, fontFamily: FONT, color: '#0B0A09' }}
+              style={{ fontSize: 12, ...bold, color: '#0B0A09' }}
             />
           </FlexWidget>
         ) : null}
@@ -108,7 +113,7 @@ export function MomentWidget({ moment, partnerName, colors, width, height }: Pro
           text={`${name} · ${relativeTime(moment.createdAt)}`}
           maxLines={1}
           truncate="END"
-          style={{ fontSize: 11, fontFamily: FONT, color: '#FFFFFF' }}
+          style={{ fontSize: 11, ...bold, color: '#FFFFFF' }}
         />
       </FlexWidget>
     </OverlapWidget>

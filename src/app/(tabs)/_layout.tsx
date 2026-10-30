@@ -2,10 +2,11 @@ import { Ionicons } from '@expo/vector-icons';
 import { Redirect } from 'expo-router';
 import { Tabs } from 'expo-router/js-tabs';
 import type { ColorValue } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 import { Glass } from '../../components/ui';
 import { useStore } from '../../lib/store';
-import { fonts, useTheme } from '../../theme';
+import { TAB_BAR_HEIGHT, tabBarBottom, useTheme } from '../../theme';
 
 type IconName = keyof typeof Ionicons.glyphMap;
 
@@ -17,8 +18,9 @@ const tab = (title: string, icon: IconName, activeIcon: IconName) => ({
 });
 
 export default function TabsLayout() {
-  const { colors } = useTheme();
+  const { colors, fonts } = useTheme();
   const { state } = useStore();
+  const insets = useSafeAreaInsets();
   if (!state.onboarded) return <Redirect href="/onboarding" />;
 
   return (
@@ -27,14 +29,14 @@ export default function TabsLayout() {
         headerShown: false,
         tabBarActiveTintColor: colors.flame,
         tabBarInactiveTintColor: colors.muted,
-        tabBarLabelStyle: { fontFamily: fonts.bodyMedium, fontSize: 11 },
-        // A rounded bar that floats above the content, like a dock.
+        tabBarLabelStyle: { ...fonts.bodyMedium, fontSize: 11 },
+        // A rounded bar that floats above the content, like a dock, clear of the phone's own buttons.
         tabBarStyle: {
           position: 'absolute',
           left: 16,
           right: 16,
-          bottom: 20,
-          height: 74,
+          bottom: tabBarBottom(insets.bottom),
+          height: TAB_BAR_HEIGHT,
           paddingTop: 10,
           paddingBottom: 12,
           borderRadius: 34,

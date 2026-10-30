@@ -1,6 +1,11 @@
 import { addDays, diffDays, type DateKey } from './dates.ts';
 
-export type Period = { start: DateKey; end: DateKey };
+export type Period = {
+  start: DateKey;
+  end: DateKey;
+  /** Set once the last day has been confirmed, so the length is known rather than guessed. */
+  ended?: boolean;
+};
 
 export type CycleSettings = {
   /** Used until there are at least two logged periods. */
@@ -15,10 +20,20 @@ export type DayKind = 'period' | 'predicted' | 'fertile' | 'ovulation';
 export type Prediction = {
   periodStart: DateKey;
   periodEnd: DateKey;
+  /** The period's last day was confirmed (or logged day by day); otherwise it's the usual length. */
+  periodEndConfirmed: boolean;
   cycleDay: number;
   cycleLength: number;
   periodLength: number;
+  /** Shortest and longest of the recent cycles (both the average until there are two). */
+  shortestCycle: number;
+  longestCycle: number;
+  /** Recent cycles differ by more than a week, so dates are given as a window. */
+  irregular: boolean;
   nextPeriod: DateKey;
+  /** The window the next period is likely to start in, from the shortest and longest recent cycles. */
+  nextEarliest: DateKey;
+  nextLatest: DateKey;
   /** Negative when the period is late. */
   daysUntilNext: number;
   ovulation: DateKey;
@@ -27,9 +42,13 @@ export type Prediction = {
   phase: Phase;
 };
 
+/** Ovulation comes about two weeks before the next period, however long the cycle. */
 const LUTEAL_DAYS = 14;
 const MIN_GAP = 15;
-const MAX_GAP = 60;
+// Irregular cycles can run long, so only a gap past three months is taken as a missed log.
+const MAX_GAP = 90;
+/** After this many days a period still waiting for its last day is no longer asked about. */
+const OPEN_DAYS = 14;
 
 const inside = (key: DateKey, p: Period) => key >= p.start && key <= p.end;
 
@@ -41,11 +60,53 @@ export function normalize(periods: Period[]): Period[] {
     const last = out[out.length - 1];
     if (last && diffDays(last.end, p.start) <= 1) {
       if (p.end > last.end) last.end = p.end;
+      if (p.ended) last.ended = true;
     } else {
       out.push({ ...p });
     }
   }
   return out;
+}
+
+/**
+ * Starts a period on `start` (today or a day before). Every day from then until today
+ * counts as a period day, and it stays open until its last day is confirmed.
+ */
+export function startPeriod(periods: Period[], start: DateKey, today: DateKey): Period[] {
+  return normalize([...periods, { start, end: start < today ? today : start }]);
+}
+
+/** Confirms the last day of the period under way on `end`, filling in every day before it. */
+export function endPeriod(periods: Period[], end: DateKey): Period[] {
+  const sorted = normalize(periods);
+  const current = sorted.filter((p) => p.start <= end).pop();
+  if (!current) return sorted;
+  return normalize(sorted.map((p) => (p === current ? { start: p.start, end, ended: true } : p)));
+}
+
+/**
+ * Swaps a logged period for corrected dates, adds one (no `original`), or removes one
+ * (no `next`). Dates entered here are confirmed, so the period counts as over.
+ */
+export function editPeriod(periods: Period[], original: Period | null, next: Period | null): Period[] {
+  const rest = normalize(periods).filter((p) => p.start !== original?.start);
+  return normalize(next ? [...rest, { start: next.start, end: next.end, ended: true }] : rest);
+}
+
+/** Whether `next` would run into another logged period (the one being edited aside). */
+export function overlapsAnother(periods: Period[], next: Period, editing?: Period): boolean {
+  return normalize(periods).some(
+    (p) => p.start !== editing?.start && diffDays(p.end, next.start) <= 1 && diffDays(next.end, p.start) <= 1,
+  );
+}
+
+/** The period under way that's still waiting for its last day to be confirmed, if any. */
+export function openPeriod(periods: Period[], today: DateKey): Period | null {
+  const latest = normalize(periods)
+    .filter((p) => p.start <= today)
+    .pop();
+  if (!latest || latest.ended) return null;
+  return diffDays(latest.start, today) < OPEN_DAYS ? latest : null;
 }
 
 /** Marks one day as a period day, extending a neighbouring period when there is one. */
@@ -76,34 +137,49 @@ function average(values: number[]): number {
   return values.reduce((a, b) => a + b, 0) / values.length;
 }
 
-/** Average gap between the last few period starts, ignoring implausible gaps. */
-export function averageCycleLength(periods: Period[], fallback: number): number {
+/** Length in days of each recent cycle (start to next start), oldest first, skipping implausible gaps. */
+export function cycleLengths(periods: Period[]): number[] {
   const sorted = normalize(periods);
   const gaps: number[] = [];
   for (let i = 1; i < sorted.length; i++) {
     const gap = diffDays(sorted[i - 1].start, sorted[i].start);
     if (gap >= MIN_GAP && gap <= MAX_GAP) gaps.push(gap);
   }
-  const recent = gaps.slice(-6);
+  return gaps.slice(-6);
+}
+
+export function averageCycleLength(periods: Period[], fallback: number): number {
+  const recent = cycleLengths(periods);
   return recent.length ? Math.round(average(recent)) : fallback;
 }
 
-/** Average length of completed periods (the latest one may still be going). */
+/**
+ * Whether a period's length is known: its last day was confirmed, or it was logged day by
+ * day and is clearly over. A start with nothing after it doesn't say how long it lasted.
+ */
+export function lengthKnown(p: Period, periods: Period[], today: DateKey): boolean {
+  if (p.ended) return true;
+  if (p.end === p.start) return false;
+  return openPeriod(periods, today)?.start !== p.start;
+}
+
+/** Average length of the recent periods whose length is known. */
 export function averagePeriodLength(periods: Period[], fallback: number, today: DateKey): number {
-  const lengths = normalize(periods)
-    .filter((p) => p.end < today)
+  const sorted = normalize(periods);
+  const lengths = sorted
+    .filter((p) => p.start <= today && lengthKnown(p, sorted, today))
     .map((p) => diffDays(p.start, p.end) + 1)
     .slice(-6);
   return lengths.length ? Math.round(average(lengths)) : fallback;
 }
 
-function phaseFor(key: DateKey, periodEnd: DateKey, ovulation: DateKey): Phase {
-  if (key <= periodEnd) return 'period';
-  const toOvulation = diffDays(key, ovulation);
-  if (toOvulation === 0) return 'ovulation';
-  if (toOvulation > 0 && toOvulation <= 5) return 'fertile';
-  if (toOvulation === -1) return 'fertile';
-  return toOvulation > 0 ? 'follicular' : 'luteal';
+type Window = { periodEnd: DateKey; fertileStart: DateKey; ovulation: DateKey; fertileEnd: DateKey };
+
+function phaseFor(key: DateKey, w: Window): Phase {
+  if (key <= w.periodEnd) return 'period';
+  if (key === w.ovulation) return 'ovulation';
+  if (key >= w.fertileStart && key <= w.fertileEnd) return 'fertile';
+  return key < w.fertileStart ? 'follicular' : 'luteal';
 }
 
 /** The summary a partner sees; enough to work out the day and phase on any later date. */
@@ -112,12 +188,18 @@ export type SharedCycle = {
   periodEnd: DateKey;
   nextPeriod: DateKey;
   ovulation: DateKey;
+  /** Added in 1.5; older summaries go without and get the usual week around ovulation. */
+  fertileStart?: DateKey;
+  fertileEnd?: DateKey;
+  nextLatest?: DateKey;
 };
 
 export function sharedCycleOn(c: SharedCycle, today: DateKey) {
+  const fertileStart = c.fertileStart ?? addDays(c.ovulation, -5);
+  const fertileEnd = c.fertileEnd ?? addDays(c.ovulation, 1);
   return {
     cycleDay: diffDays(c.periodStart, today) + 1,
-    phase: phaseFor(today, c.periodEnd, c.ovulation),
+    phase: phaseFor(today, { periodEnd: c.periodEnd, fertileStart, ovulation: c.ovulation, fertileEnd }),
     daysUntilNext: diffDays(today, c.nextPeriod),
   };
 }
@@ -133,25 +215,92 @@ export function predict(
 
   const cycleLength = averageCycleLength(past, settings.cycleLength);
   const periodLength = averagePeriodLength(past, settings.periodLength, today);
+  const recent = cycleLengths(past);
+  const shortestCycle = recent.length >= 2 ? Math.min(...recent) : cycleLength;
+  const longestCycle = recent.length >= 2 ? Math.max(...recent) : cycleLength;
   const nextPeriod = addDays(current.start, cycleLength);
   const ovulation = addDays(nextPeriod, -LUTEAL_DAYS);
 
+  // A confirmed last day is used as it is; otherwise assume the usual length.
+  const periodEndConfirmed = lengthKnown(current, past, today);
   const typicalEnd = addDays(current.start, periodLength - 1);
-  const periodEnd = current.end > typicalEnd ? current.end : typicalEnd;
+  const periodEnd = periodEndConfirmed || current.end > typicalEnd ? current.end : typicalEnd;
+
+  // The fertile window runs from five days before the earliest likely ovulation (shortest
+  // cycle) to the day after the latest (longest), so it widens when cycles vary.
+  const earliestOvulation = addDays(current.start, shortestCycle - LUTEAL_DAYS);
+  const latestOvulation = addDays(current.start, longestCycle - LUTEAL_DAYS);
+  const fertileStart = maxKey(addDays(earliestOvulation, -5), addDays(periodEnd, 1));
+  const fertileEnd = addDays(latestOvulation, 1);
 
   return {
     periodStart: current.start,
     periodEnd,
+    periodEndConfirmed,
     cycleDay: diffDays(current.start, today) + 1,
     cycleLength,
     periodLength,
+    shortestCycle,
+    longestCycle,
+    irregular: longestCycle - shortestCycle > 7,
     nextPeriod,
+    nextEarliest: addDays(current.start, shortestCycle),
+    nextLatest: addDays(current.start, longestCycle),
     daysUntilNext: diffDays(today, nextPeriod),
     ovulation,
-    fertileStart: addDays(ovulation, -5),
-    fertileEnd: addDays(ovulation, 1),
-    phase: phaseFor(today, periodEnd, ovulation),
+    fertileStart,
+    fertileEnd,
+    phase: phaseFor(today, { periodEnd, fertileStart, ovulation, fertileEnd }),
   };
+}
+
+const maxKey = (a: DateKey, b: DateKey) => (a > b ? a : b);
+
+export type Stage = {
+  phase: Exclude<Phase, 'fertile'>;
+  start: DateKey;
+  end: DateKey;
+  days: number;
+  /** Worked out from cycle lengths rather than logged. */
+  estimated: boolean;
+};
+
+/**
+ * The current cycle laid out as its four phases (period, follicular, ovulation, luteal),
+ * each with its dates and length. Only the period is logged; the rest is counted back from
+ * the next expected period. The fertile window spans the days around ovulation.
+ */
+export function stagesOf(p: Prediction, today: DateKey): Stage[] {
+  const stage = (phase: Stage['phase'], start: DateKey, end: DateKey, estimated: boolean): Stage[] =>
+    end < start ? [] : [{ phase, start, end, days: diffDays(start, end) + 1, estimated }];
+  // While a period is late, the luteal phase simply runs on until it comes.
+  const lutealEnd = maxKey(addDays(p.nextPeriod, -1), today);
+  if (p.ovulation <= p.periodEnd) {
+    return [...stage('period', p.periodStart, p.periodEnd, !p.periodEndConfirmed), ...stage('luteal', addDays(p.periodEnd, 1), lutealEnd, true)];
+  }
+  return [
+    ...stage('period', p.periodStart, p.periodEnd, !p.periodEndConfirmed),
+    ...stage('follicular', addDays(p.periodEnd, 1), addDays(p.ovulation, -1), true),
+    ...stage('ovulation', p.ovulation, p.ovulation, true),
+    ...stage('luteal', addDays(p.ovulation, 1), lutealEnd, true),
+  ];
+}
+
+/** One past cycle for the history list: when it started, how long the period and the cycle ran. */
+export type CycleEntry = { period: Period; periodDays: number | null; cycleDays: number | null };
+
+export function cycleHistory(periods: Period[], today: DateKey): CycleEntry[] {
+  const sorted = normalize(periods).filter((p) => p.start <= today);
+  return sorted
+    .map((period, i) => {
+      const next = sorted[i + 1];
+      return {
+        period,
+        periodDays: lengthKnown(period, sorted, today) ? diffDays(period.start, period.end) + 1 : null,
+        cycleDays: next ? diffDays(period.start, next.start) : null,
+      };
+    })
+    .reverse();
 }
 
 /**
@@ -170,13 +319,15 @@ export function calendarMap(
 
   if (prediction) {
     const { cycleLength, periodLength } = prediction;
-    const lastStart = sorted.filter((p) => p.start <= today).pop()!.start;
+    const lastStart = prediction.periodStart;
     for (let i = 0; i <= cycles; i++) {
       const start = addDays(lastStart, cycleLength * i);
       const ovulation = addDays(start, cycleLength - LUTEAL_DAYS);
-      for (let d = -5; d <= 1; d++) {
-        const key = addDays(ovulation, d);
-        if (key > lastStart) map[key] = d === 0 ? 'ovulation' : 'fertile';
+      // This cycle's window reflects how much your cycles vary; later ones use the average.
+      const from = i === 0 ? prediction.fertileStart : addDays(ovulation, -5);
+      const to = i === 0 ? prediction.fertileEnd : addDays(ovulation, 1);
+      for (let key = from; key <= to; key = addDays(key, 1)) {
+        if (key > lastStart) map[key] = key === ovulation ? 'ovulation' : 'fertile';
       }
       for (let d = 0; d < periodLength; d++) {
         const key = addDays(start, d);

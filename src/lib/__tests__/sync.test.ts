@@ -29,6 +29,8 @@ function baseState(): State {
     moods: { me: { emoji: '🥰', label: 'Loved', at: '2026-10-13T08:00:00Z' } },
     dateIdeas: [{ id: 'd1', text: 'Picnic', done: false }],
     coupons: [],
+    picks: {},
+    letters: [],
     sync: { serverUrl: 'http://x', token: 't', memberId: ME, pairCode: null, cursor: 0, pushed: {} },
   };
 }
@@ -47,7 +49,9 @@ describe('outgoing records', () => {
       'profile:me-id',
     ]);
     const cycle = out.get('cycle:me-id')!.data as Record<string, string>;
-    assert.deepEqual(Object.keys(cycle).sort(), ['nextPeriod', 'ovulation', 'periodEnd', 'periodStart']);
+    assert.deepEqual(Object.keys(cycle).sort(), [
+      'fertileEnd', 'fertileStart', 'nextLatest', 'nextPeriod', 'ovulation', 'periodEnd', 'periodStart',
+    ]);
     assert.ok(!JSON.stringify([...out.values()]).includes('private'));
   });
 
@@ -119,6 +123,39 @@ describe('applying partner records', () => {
   });
 });
 
+describe('video moments', () => {
+  const clip = { id: 'v1', uri: 'file:///v1.jpg', videoUri: 'file:///v1.mp4', videoExt: 'mp4', caption: 'waves', from: 'me' as const, createdAt: '2026-10-30T10:00:00Z' };
+
+  it('go out only once both the still frame and the video are uploaded', () => {
+    const s = baseState();
+    s.moments = [{ ...clip, photoId: 'p1' }];
+    assert.ok(!outgoingRecords(s).has('moment:v1'), 'not before the video itself is up');
+    s.moments = [{ ...clip, photoId: 'p1', videoId: 'vid1' }];
+    assert.deepEqual(outgoingRecords(s).get('moment:v1')?.data, {
+      photoId: 'p1', caption: 'waves', createdAt: clip.createdAt, videoId: 'vid1', videoExt: 'mp4',
+    });
+  });
+
+  it('arrive as a still frame with the video to fetch, keeping a copy already downloaded', () => {
+    const data = { photoId: 'p9', caption: 'hi', createdAt: '2026-10-30T11:00:00Z', videoId: 'vid9', videoExt: 'mov' };
+    const pulled = { kind: 'moment', id: 'v9', data, author: PARTNER, seq: 1 };
+    let s = applyRecords(baseState(), [pulled], { v9: 'file:///v9.jpg' });
+    const v9 = s.moments.find((m) => m.id === 'v9')!;
+    assert.equal(v9.uri, 'file:///v9.jpg');
+    assert.equal(v9.videoId, 'vid9');
+    assert.equal(v9.videoExt, 'mov');
+    assert.equal(v9.videoUri, undefined, 'downloaded separately');
+
+    s = { ...s, moments: s.moments.map((m) => (m.id === 'v9' ? { ...m, videoUri: 'file:///v9.mov' } : m)) };
+    s = applyRecords(s, [{ ...pulled, seq: 2 }], { v9: 'file:///v9.jpg' });
+    assert.equal(s.moments.find((m) => m.id === 'v9')?.videoUri, 'file:///v9.mov');
+  });
+
+  it('leave photo moments exactly as before', () => {
+    assert.deepEqual(outgoingRecords(baseState()).get('moment:m1')?.data, { photoId: 'p1', caption: 'hi', createdAt: '2026-10-10T10:00:00Z' });
+  });
+});
+
 describe('love coupons', () => {
   const gift = { emoji: '🍳', text: 'Breakfast in bed', giver: PARTNER, createdAt: '2026-10-30T10:00:00Z', redeemedAt: null };
 
@@ -134,6 +171,67 @@ describe('love coupons', () => {
     s.coupons = s.coupons.map((c) => ({ ...c, redeemedAt: '2026-10-30T12:00:00Z' }));
     const change = pendingChanges(s, '2026-10-13').find((c) => c.kind === 'coupon');
     assert.deepEqual(change?.data, { ...gift, redeemedAt: '2026-10-30T12:00:00Z' });
+  });
+});
+
+describe('this or that', () => {
+  it('sends only my side and fills in the partner\'s', () => {
+    const s = baseState();
+    s.picks = { 'coffee-tea': { me: 'a', partner: 'b' }, 'cats-dogs': { partner: 'a' } };
+    const out = outgoingRecords(s, '2026-10-13');
+    assert.deepEqual(out.get(`pick:${ME}:coffee-tea`)?.data, { pair: 'coffee-tea', choice: 'a' });
+    assert.ok(![...out.keys()].some((k) => k.includes('cats-dogs')), 'the partner\'s picks are theirs to send');
+
+    const next = applyRecords(s, [
+      { kind: 'pick', id: `${PARTNER}:beach-mountains`, data: { pair: 'beach-mountains', choice: 'b' }, author: PARTNER, seq: 1 },
+      { kind: 'pick', id: `${PARTNER}:coffee-tea`, data: null, deleted: true, author: PARTNER, seq: 2 },
+    ]);
+    assert.deepEqual(next.picks['beach-mountains'], { partner: 'b' });
+    assert.deepEqual(next.picks['coffee-tea'], { me: 'a' });
+  });
+});
+
+describe('open when letters', () => {
+  const letter = { when: 'Open when you miss me', text: 'Look up, I am too.', writer: PARTNER, createdAt: '2026-10-30T10:00:00Z', openedAt: null };
+
+  it('arrive sealed and go back to the writer once opened', () => {
+    const s = applyRecords(baseState(), [{ kind: 'letter', id: 'l1', data: letter, author: PARTNER, seq: 1 }]);
+    assert.equal(s.letters[0].from, 'partner');
+    assert.equal(s.letters[0].openedAt, undefined);
+    assert.ok(!pendingChanges(s, '2026-10-13').some((c) => c.kind === 'letter'), 'not echoed back');
+
+    s.letters = s.letters.map((l) => ({ ...l, openedAt: '2026-10-30T12:00:00Z' }));
+    const change = pendingChanges(s, '2026-10-13').find((c) => c.kind === 'letter');
+    assert.deepEqual(change?.data, { ...letter, openedAt: '2026-10-30T12:00:00Z' });
+  });
+
+  it('are sent with me as the writer and taken back with a deletion', () => {
+    const s = baseState();
+    s.letters = [{ id: 'l2', when: 'Open on your birthday', text: 'Happy birthday!', from: 'me', createdAt: '2026-10-30T09:00:00Z' }];
+    const out = outgoingRecords(s, '2026-10-13').get('letter:l2');
+    assert.deepEqual(out?.data, { when: 'Open on your birthday', text: 'Happy birthday!', writer: ME, createdAt: '2026-10-30T09:00:00Z', openedAt: null });
+
+    s.sync!.pushed['letter:l2'] = fingerprint(out!.data);
+    s.letters = [];
+    assert.deepEqual(pendingChanges(s, '2026-10-13').filter((c) => c.kind === 'letter'), [{ kind: 'letter', id: 'l2', deleted: true }]);
+  });
+});
+
+describe('next date', () => {
+  it('is shared both ways without echoing, and clears on both phones', () => {
+    const plan = { date: '2026-11-07', label: 'Dinner at Luigi\'s' };
+    const s = baseState();
+    s.nextDate = plan;
+    assert.deepEqual(outgoingRecords(s, '2026-10-13').get('couple:next')?.data, plan);
+
+    let theirs = applyRecords(baseState(), [{ kind: 'couple', id: 'next', data: plan, author: PARTNER, seq: 1 }]);
+    assert.deepEqual(theirs.nextDate, plan);
+    assert.equal(theirs.togetherSince, '2025-02-14', 'the anniversary is left alone');
+    assert.ok(!pendingChanges(theirs, '2026-10-13').some((c) => c.id === 'next'));
+
+    theirs = applyRecords(theirs, [{ kind: 'couple', id: 'next', data: null, deleted: true, author: PARTNER, seq: 2 }]);
+    assert.equal(theirs.nextDate, undefined);
+    assert.ok(!pendingChanges(theirs, '2026-10-13').some((c) => c.id === 'next'));
   });
 });
 
@@ -163,7 +261,7 @@ describe('restoring on a new phone', () => {
 
   it('backs up only what never leaves the phone otherwise', () => {
     const backup = backupOf(baseState());
-    assert.deepEqual(Object.keys(backup).sort(), ['appearance', 'cycle', 'names', 'togetherSince']);
+    assert.deepEqual(Object.keys(backup).sort(), ['appearance', 'cycle', 'font', 'names', 'togetherSince']);
     assert.equal(backup.cycle.logs['2026-10-02'].note, 'private');
   });
 });

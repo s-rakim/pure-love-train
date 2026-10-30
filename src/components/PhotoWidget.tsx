@@ -5,7 +5,7 @@ import { StyleSheet, Text, View } from 'react-native';
 
 import { relativeTime } from '../lib/dates';
 import type { Moment } from '../lib/store';
-import { fonts, makeStyles, radius, useTheme } from '../theme';
+import { makeStyles, radius, useTheme } from '../theme';
 
 /**
  * The square photo tile that mirrors the home screen widget: the newest
@@ -50,7 +50,7 @@ export function PhotoWidget({
   );
 }
 
-const useStyles = makeStyles((colors) => ({
+const useStyles = makeStyles((colors, fonts) => ({
   frame: {
     borderRadius: radius.xl,
     overflow: 'hidden',
@@ -68,17 +68,17 @@ const useStyles = makeStyles((colors) => ({
     paddingHorizontal: 10,
     paddingVertical: 4,
   },
-  caption: { fontFamily: fonts.bodyMedium, fontSize: 12, color: colors.black },
+  caption: { ...fonts.bodyMedium, fontSize: 12, color: colors.black },
   meta: {
     position: 'absolute',
     left: 12,
     right: 12,
     bottom: 9,
-    fontFamily: fonts.bodyBold,
+    ...fonts.bodyBold,
     fontSize: 11,
     color: colors.white,
     textAlign: 'center',
   },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', padding: 16, gap: 8 },
-  emptyText: { fontFamily: fonts.bodyMedium, fontSize: 12, color: colors.flameDeep, textAlign: 'center' },
+  emptyText: { ...fonts.bodyMedium, fontSize: 12, color: colors.flameDeep, textAlign: 'center' },
 }));

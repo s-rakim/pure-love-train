@@ -4,13 +4,15 @@ import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 import { Flame } from '../../components/Flame';
+import { NextDateSheet } from '../../components/NextDateSheet';
 import { PhotoWidget } from '../../components/PhotoWidget';
 import { Body, Card, Chip, Eyebrow, Heading, Row, Screen, SectionTitle, Sheet, Title, tap } from '../../components/ui';
 import { phaseCopy, sharedCycleOn } from '../../lib/cycle';
-import { relativeTime, shortDate, toKey } from '../../lib/dates';
+import { diffDays, relativeTime, shortDate, toKey } from '../../lib/dates';
 import { useCycle, useDaysTogether, useNames, useStreak, useToday } from '../../lib/hooks';
+import { THIS_OR_THAT } from '../../lib/questions';
 import { newId, useStore, type Person } from '../../lib/store';
-import { fonts, makeStyles, radius, space, useTheme } from '../../theme';
+import { makeStyles, radius, space, useTheme } from '../../theme';
 
 const LOVE_TAPS = [
   { emoji: '🤗', label: 'Hug', text: 'Sending you a big hug' },
@@ -20,13 +22,23 @@ const LOVE_TAPS = [
   { emoji: '💖', label: 'Love you', text: 'I love you' },
 ];
 
+// Roughly sunny to stormy, so the one you want is easy to find.
 const MOODS = [
   { emoji: '🥰', label: 'Loved' },
-  { emoji: '😌', label: 'Calm' },
+  { emoji: '😊', label: 'Happy' },
   { emoji: '🤩', label: 'Excited' },
+  { emoji: '😏', label: 'Flirty' },
+  { emoji: '🤪', label: 'Playful' },
+  { emoji: '🙏', label: 'Grateful' },
+  { emoji: '😌', label: 'Calm' },
   { emoji: '😴', label: 'Tired' },
+  { emoji: '🥺', label: 'Missing you' },
+  { emoji: '🤗', label: 'Need a hug' },
   { emoji: '😤', label: 'Stressed' },
-  { emoji: '🥺', label: 'Need a hug' },
+  { emoji: '😰', label: 'Anxious' },
+  { emoji: '😢', label: 'Sad' },
+  { emoji: '😠', label: 'Upset' },
+  { emoji: '🤒', label: 'Unwell' },
 ];
 
 function greeting(now = new Date()) {
@@ -50,6 +62,7 @@ export default function Home() {
   const [pickingMood, setPickingMood] = useState(false);
   const [pickingTap, setPickingTap] = useState(false);
   const [sentTap, setSentTap] = useState<string | null>(null);
+  const [planning, setPlanning] = useState(false);
 
   const latestFromPartner = state.moments.find((m) => m.from === 'partner');
   const latestNoteFromPartner = state.notes.find((n) => n.from === 'partner');
@@ -70,6 +83,11 @@ export default function Home() {
 
   const nextIdea = state.dateIdeas.find((d) => !d.done)?.text;
   const couponsToRedeem = (state.coupons ?? []).filter((c) => c.from === 'partner' && !c.redeemedAt).length;
+  const picks = state.picks ?? {};
+  const picksWaiting = THIS_OR_THAT.filter((p) => picks[p.id]?.partner && !picks[p.id]?.me).length;
+  const sealedForMe = (state.letters ?? []).filter((l) => l.from === 'partner' && !l.openedAt).length;
+  const nextDate = state.nextDate && state.nextDate.date >= today ? state.nextDate : undefined;
+  const dateAway = nextDate ? diffDays(today, nextDate.date) : 0;
 
   // A love tap is a one-line note, so it reaches the partner like any other note.
   const sendTap = (tap: (typeof LOVE_TAPS)[number]) => {
@@ -216,6 +234,22 @@ export default function Home() {
           onPress={() => setPickingTap((v) => !v)}
         />
         <ActivityTile
+          icon="swap-horizontal"
+          color={colors.sky}
+          tint={colors.skySoft}
+          title="This or that"
+          subtitle={picksWaiting ? `${picksWaiting} waiting for you` : 'Pick a side, see if you match'}
+          onPress={() => router.push('/this-or-that')}
+        />
+        <ActivityTile
+          icon="mail-open"
+          color={colors.plum}
+          tint={colors.plumSoft}
+          title="Open when…"
+          subtitle={sealedForMe ? `${sealedForMe} sealed for you` : 'Letters for the right moment'}
+          onPress={() => router.push('/letters')}
+        />
+        <ActivityTile
           icon="ticket"
           color={colors.rose}
           tint={colors.roseSoft}
@@ -242,6 +276,22 @@ export default function Home() {
           onPress={() => router.push(nextIdea ? '/us?spin=1' : '/us')}
         />
         <ActivityTile
+          icon="hourglass"
+          color={colors.ember}
+          tint={colors.emberSoft}
+          title={
+            !nextDate
+              ? 'Next date'
+              : dateAway === 0
+                ? 'Date today'
+                : dateAway === 1
+                  ? 'Date tomorrow'
+                  : `${dateAway} days to go`
+          }
+          subtitle={nextDate ? nextDate.label || shortDate(nextDate.date) : 'Plan it, count it down'}
+          onPress={() => setPlanning(true)}
+        />
+        <ActivityTile
           icon="calendar"
           color={colors.flame}
           tint={colors.flameSoft}
@@ -258,6 +308,7 @@ export default function Home() {
         </View>
         <Body muted style={{ fontSize: 13 }}>It lands in your love notes.</Body>
       </Sheet>
+      <NextDateSheet visible={planning} onClose={() => setPlanning(false)} />
     </Screen>
   );
 }
@@ -292,7 +343,7 @@ function ActivityTile({
       <View style={[styles.tileIcon, { backgroundColor: color }]}>
         <Ionicons name={icon} size={20} color={colors.onAccent} />
       </View>
-      <Text style={styles.tileTitle} numberOfLines={1}>{title}</Text>
+      <Text style={styles.tileTitle} numberOfLines={2}>{title}</Text>
       <Text style={styles.tileSubtitle} numberOfLines={2}>{subtitle}</Text>
     </Pressable>
   );
@@ -312,7 +363,9 @@ function PartnerCycleCard({ name }: { name: string }) {
       </Heading>
       <Body style={{ fontSize: 14 }}>
         {daysUntil > 0
-          ? `Period expected in ${daysUntil} day${daysUntil === 1 ? '' : 's'} (${shortDate(c.nextPeriod)}).`
+          ? `Period expected in ${daysUntil} day${daysUntil === 1 ? '' : 's'} (${shortDate(c.nextPeriod)}${
+              c.nextLatest && c.nextLatest !== c.nextPeriod ? `, or as late as ${shortDate(c.nextLatest)}` : ''
+            }).`
           : daysUntil === 0
             ? 'Period expected today.'
             : `Period was expected ${shortDate(c.nextPeriod)}.`}{' '}
@@ -338,7 +391,7 @@ function MoodTile({ who, name, onPress }: { who: Person; name: string; onPress?:
   );
 }
 
-const useStyles = makeStyles((colors) => ({
+const useStyles = makeStyles((colors, fonts) => ({
   streakPill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -350,7 +403,7 @@ const useStyles = makeStyles((colors) => ({
     paddingHorizontal: space(3),
     height: 40,
   },
-  streakText: { fontFamily: fonts.bodyBold, fontSize: 15, color: colors.ink },
+  streakText: { ...fonts.bodyBold, fontSize: 15, color: colors.ink },
   iconButton: {
     width: 40,
     height: 40,
@@ -361,7 +414,7 @@ const useStyles = makeStyles((colors) => ({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  heroTitle: { fontFamily: fonts.display, fontSize: 21, color: colors.ink, letterSpacing: -0.4 },
+  heroTitle: { ...fonts.display, fontSize: 21, color: colors.ink, letterSpacing: -0.4 },
   checkRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -371,13 +424,13 @@ const useStyles = makeStyles((colors) => ({
     paddingHorizontal: space(3.5),
     paddingVertical: space(3),
   },
-  checkLabel: { flex: 1, fontFamily: fonts.bodyMedium, fontSize: 15, color: colors.ink },
+  checkLabel: { flex: 1, ...fonts.bodyMedium, fontSize: 15, color: colors.ink },
   wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: space(2) },
-  moodLabel: { fontFamily: fonts.bodyBold, fontSize: 14, color: colors.ink, textAlign: 'center' },
-  noteText: { fontFamily: fonts.bodyMedium, fontSize: 15, lineHeight: 21, color: colors.ink },
+  moodLabel: { ...fonts.bodyBold, fontSize: 14, color: colors.ink, textAlign: 'center' },
+  noteText: { ...fonts.bodyMedium, fontSize: 15, lineHeight: 21, color: colors.ink },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: space(3) },
   tile: { width: '47.8%', flexGrow: 1, borderRadius: radius.lg, padding: space(4), gap: space(1.5), minHeight: 128 },
   tileIcon: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginBottom: space(1) },
-  tileTitle: { fontFamily: fonts.bodyBold, fontSize: 16, color: colors.ink },
-  tileSubtitle: { fontFamily: fonts.body, fontSize: 13, lineHeight: 18, color: colors.inkSoft },
+  tileTitle: { ...fonts.bodyBold, fontSize: 16, color: colors.ink },
+  tileSubtitle: { ...fonts.body, fontSize: 13, lineHeight: 18, color: colors.inkSoft },
 }));
