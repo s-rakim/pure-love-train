@@ -1,15 +1,23 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { Alert, Platform, Pressable, Text, View } from 'react-native';
 
+import { AccountCard } from '../components/AccountCard';
 import { PairingCard } from '../components/PairingCard';
 import { Body, Button, Card, Chip, Eyebrow, Field, Row, Screen } from '../components/ui';
 import { isValidKey } from '../lib/dates';
 import { useStore } from '../lib/store';
-import { colors, fonts, radius, space } from '../theme';
+import { type AppearancePref, fonts, makeStyles, radius, space, useTheme } from '../theme';
+
+const APPEARANCES: { value: AppearancePref; label: string }[] = [
+  { value: 'system', label: 'System' },
+  { value: 'light', label: 'Light' },
+  { value: 'dark', label: 'Dark' },
+];
 
 export default function Settings() {
+  const { colors } = useTheme();
   const { state, update, reset } = useStore();
   const [me, setMe] = useState(state.names.me);
   const [partner, setPartner] = useState(state.names.partner);
@@ -65,6 +73,25 @@ export default function Settings() {
 
       <PairingCard />
 
+      <AccountCard />
+
+      <Card>
+        <Eyebrow>Appearance</Eyebrow>
+        <Row>
+          {APPEARANCES.map((a) => (
+            <Chip
+              key={a.value}
+              label={a.label}
+              selected={(state.appearance ?? 'system') === a.value}
+              onPress={() => update((s) => ({ ...s, appearance: a.value }))}
+            />
+          ))}
+        </Row>
+        <Body muted style={{ fontSize: 13 }}>
+          System follows your phone's light or dark setting.
+        </Body>
+      </Card>
+
       <Card>
         <Eyebrow>Cycle</Eyebrow>
         <Row>
@@ -100,6 +127,8 @@ export default function Settings() {
 }
 
 function Stepper({ label, value, onChange }: { label: string; value: number; onChange: (delta: number) => void }) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   return (
     <Row style={{ justifyContent: 'space-between' }}>
       <Body style={{ color: colors.ink }}>{label}</Body>
@@ -116,7 +145,7 @@ function Stepper({ label, value, onChange }: { label: string; value: number; onC
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   step: {
     width: 34,
     height: 34,
@@ -126,4 +155,4 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   stepValue: { fontFamily: fonts.bodyBold, fontSize: 15, color: colors.ink, minWidth: 64, textAlign: 'center' },
-});
+}));

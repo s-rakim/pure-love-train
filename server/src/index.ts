@@ -10,7 +10,8 @@ const dataDir = process.env.DATA_DIR ?? join(process.cwd(), 'data');
 
 mkdirSync(dataDir, { recursive: true });
 const db = openDb(join(dataDir, 'pure-love.db'));
-const server = createServer(createApp(db, dataDir));
+// The OAuth web client ID from Google Cloud; leave unset to keep Google sign-in off.
+const server = createServer(createApp(db, dataDir, { googleClientId: process.env.GOOGLE_CLIENT_ID }));
 
 server.listen(port, () => {
   console.log(`Pure Love sync server listening on port ${port}, data in ${dataDir}`);

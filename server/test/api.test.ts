@@ -15,7 +15,13 @@ let dataDir: string;
 
 before(async () => {
   dataDir = mkdtempSync(join(tmpdir(), 'pure-love-'));
-  server = createServer(createApp(openDb(join(dataDir, 'test.db')), dataDir));
+  // Stands in for Google: a token "google:<name>" signs in as <name>@gmail.com.
+  const verifyGoogle = async (idToken: string, clientId: string) => {
+    assert.equal(clientId, 'web-client');
+    const name = idToken.replace(/^google:/, '');
+    return { subject: `sub-${name}`, email: `${name}@gmail.com` };
+  };
+  server = createServer(createApp(openDb(join(dataDir, 'test.db')), dataDir, { googleClientId: 'web-client', verifyGoogle }));
   await new Promise<void>((resolve) => server.listen(0, resolve));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
@@ -104,6 +110,15 @@ describe('pairing and sync', () => {
       json: { records: [{ kind: 'dateIdea', id: 'd1', data: { text: 'picnic', done: true } }] },
     });
     assert.equal(edit.body.results[0].ok, true, 'shared records can be edited by either partner');
+
+    const gift = { emoji: '🍳', text: 'Breakfast in bed', giver: a.memberId, createdAt: '2026-10-30T10:00:00Z', redeemedAt: null };
+    await call('/api/sync', { method: 'POST', token: a.token, json: { records: [{ kind: 'coupon', id: 'c1', data: gift }] } });
+    const redeemed = await call('/api/sync', {
+      method: 'POST',
+      token: b.token,
+      json: { records: [{ kind: 'coupon', id: 'c1', data: { ...gift, redeemedAt: '2026-10-30T12:00:00Z' } }] },
+    });
+    assert.equal(redeemed.body.results[0].ok, true, 'the partner can redeem a coupon they were given');
   });
 
   it('stores photos privately for the couple', async () => {
@@ -118,5 +133,40 @@ describe('pairing and sync', () => {
     assert.equal((await call(`/api/photos/${up.body.photoId}`, { token: outsider.token })).status, 404);
     const text = await call('/api/photos', { method: 'POST', token: a.token, headers: { 'content-type': 'text/plain' }, body: 'x' });
     assert.equal(text.status, 415);
+  });
+});
+
+describe('google sign-in and backups', () => {
+  it('brings a member back on a new phone', async () => {
+    assert.equal((await call('/api/config')).body.googleClientId, 'web-client');
+    const alex = (await call('/api/couples', { method: 'POST', json: { name: 'Alex' } })).body;
+
+    const linked = await call('/api/account/google', { method: 'POST', token: alex.token, json: { idToken: 'google:alex' } });
+    assert.equal(linked.body.email, 'alex@gmail.com');
+    const backup = { names: { me: 'Alex', partner: 'Sam' }, cycle: { logs: { '2026-10-02': { symptoms: ['Cramps'] } } } };
+    assert.equal((await call('/api/backup', { method: 'POST', token: alex.token, json: { data: backup } })).status, 200);
+
+    const restored = await call('/api/account/google/restore', { method: 'POST', json: { idToken: 'google:alex' } });
+    assert.equal(restored.status, 200);
+    assert.equal(restored.body.memberId, alex.memberId);
+    assert.equal(restored.body.name, 'Alex');
+    assert.deepEqual(restored.body.backup, backup);
+    assert.equal((await call('/api/me', { token: restored.body.token })).status, 200, 'the new phone is signed in');
+    assert.equal((await call('/api/me', { token: alex.token })).status, 200, 'the old phone keeps working');
+  });
+
+  it('keeps each Google account to one person', async () => {
+    const eve = (await call('/api/couples', { method: 'POST', json: { name: 'Eve' } })).body;
+    const taken = await call('/api/account/google', { method: 'POST', token: eve.token, json: { idToken: 'google:alex' } });
+    assert.equal(taken.status, 409);
+    const unknown = await call('/api/account/google/restore', { method: 'POST', json: { idToken: 'google:nobody' } });
+    assert.equal(unknown.status, 404);
+  });
+
+  it('forgets the link and the backup on sign out', async () => {
+    const restored = (await call('/api/account/google/restore', { method: 'POST', json: { idToken: 'google:alex' } })).body;
+    await call('/api/account/google/unlink', { method: 'POST', token: restored.token, json: {} });
+    const again = await call('/api/account/google/restore', { method: 'POST', json: { idToken: 'google:alex' } });
+    assert.equal(again.status, 404);
   });
 });

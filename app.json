@@ -3,10 +3,10 @@
     "name": "Pure Love",
     "slug": "pure-love",
     "scheme": "purelove",
-    "version": "1.2.0",
+    "version": "1.3.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
-    "userInterfaceStyle": "dark",
+    "userInterfaceStyle": "automatic",
     "backgroundColor": "#0B0A09",
     "ios": {
       "supportsTablet": true,
@@ -19,6 +19,7 @@
     },
     "android": {
       "package": "com.purelove.app",
+      "versionCode": 130,
       "adaptiveIcon": {
         "backgroundColor": "#0B0A09",
         "foregroundImage": "./assets/android-icon-foreground.png",
@@ -48,6 +49,41 @@
           "android": {
             "usesCleartextTraffic": true
           }
+        }
+      ],
+      [
+        "expo-media-library",
+        {
+          "photosPermission": "Pick photos to share as moments with your partner.",
+          "savePhotosPermission": "Save moments to your photos.",
+          "isAccessMediaLocationEnabled": false,
+          "granularPermissions": [
+            "photo"
+          ]
+        }
+      ],
+      [
+        "react-native-android-widget",
+        {
+          "fonts": [
+            "./node_modules/@expo-google-fonts/dm-sans/700Bold/DMSans_700Bold.ttf"
+          ],
+          "widgets": [
+            {
+              "name": "Moment",
+              "label": "Pure Love",
+              "description": "Your partner's latest moment, right on your home screen.",
+              "minWidth": "110dp",
+              "minHeight": "110dp",
+              "targetCellWidth": 2,
+              "targetCellHeight": 2,
+              "maxResizeWidth": "420dp",
+              "maxResizeHeight": "420dp",
+              "resizeMode": "horizontal|vertical",
+              "updatePeriodMillis": 1800000,
+              "previewImage": "./assets/widget-preview.png"
+            }
+          ]
         }
       ]
     ],

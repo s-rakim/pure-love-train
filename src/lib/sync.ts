@@ -2,7 +2,7 @@ import { Directory, File, Paths, UploadType } from 'expo-file-system';
 import { Platform } from 'react-native';
 
 import type { State, SyncState } from './store';
-import { applyRecords, fingerprint, pendingChanges, recordKey, type PulledRecord } from './syncCore';
+import { applyRecords, backupOf, fingerprint, pendingChanges, recordKey, type PulledRecord } from './syncCore';
 
 type Update = (fn: (s: State) => State) => void;
 
@@ -19,7 +19,7 @@ export function normalizeServerUrl(input: string): string {
   return url;
 }
 
-async function request<T>(sync: Pick<SyncState, 'serverUrl'> & { token?: string }, path: string, init: RequestInit = {}) {
+export async function request<T>(sync: Pick<SyncState, 'serverUrl'> & { token?: string }, path: string, init: RequestInit = {}) {
   const headers: Record<string, string> = { ...(init.headers as Record<string, string>) };
   if (sync.token) headers.authorization = `Bearer ${sync.token}`;
   if (init.body && typeof init.body === 'string') headers['content-type'] = 'application/json';
@@ -127,37 +127,52 @@ export function syncOnce(getState: () => State, update: Update): Promise<void> {
   return inFlight;
 }
 
+/**
+ * Pulls everything new from the server into local state. While a phone is
+ * being restored it also takes back its own records (and their photos).
+ */
+export async function pull(start: SyncState, update: Update) {
+  const restoring = !!start.restore;
+  let cursor = start.cursor;
+  for (;;) {
+    const page = await request<Session & { records: PulledRecord[]; cursor: number; more: boolean }>(
+      start,
+      `/api/sync?since=${cursor}`,
+    );
+    const photoUris: Record<string, string> = {};
+    for (const r of page.records) {
+      const data = r.data as { photoId?: string } | null;
+      const wanted = restoring || r.author !== start.memberId;
+      if (r.kind === 'moment' && wanted && !r.deleted && data?.photoId) {
+        photoUris[r.id] = await downloadPhoto(start, data.photoId, r.id);
+      }
+    }
+    cursor = page.cursor;
+    update((s) => {
+      if (!s.sync || s.sync.token !== start.token) return s;
+      const next = applyRecords(s, page.records, photoUris, restoring);
+      return {
+        ...next,
+        names: page.partner ? { ...next.names, partner: next.names.partner || page.partner.name } : next.names,
+        sync: {
+          ...next.sync!,
+          cursor: page.cursor,
+          pairCode: page.pairCode,
+          partnerId: page.partner?.id,
+          restore: page.more ? next.sync!.restore : undefined,
+        },
+      };
+    });
+    if (!page.more) break;
+  }
+}
+
 async function runSync(getState: () => State, update: Update) {
   const start = getState().sync;
   if (!start) return;
 
   try {
-    // Pull
-    let cursor = start.cursor;
-    for (;;) {
-      const page = await request<Session & { records: PulledRecord[]; cursor: number; more: boolean }>(
-        start,
-        `/api/sync?since=${cursor}`,
-      );
-      const photoUris: Record<string, string> = {};
-      for (const r of page.records) {
-        const data = r.data as { photoId?: string } | null;
-        if (r.kind === 'moment' && r.author !== start.memberId && !r.deleted && data?.photoId) {
-          photoUris[r.id] = await downloadPhoto(start, data.photoId, r.id);
-        }
-      }
-      cursor = page.cursor;
-      update((s) => {
-        if (!s.sync || s.sync.token !== start.token) return s;
-        const next = applyRecords(s, page.records, photoUris);
-        return {
-          ...next,
-          names: page.partner ? { ...next.names, partner: next.names.partner || page.partner.name } : next.names,
-          sync: { ...next.sync!, cursor: page.cursor, pairCode: page.pairCode, partnerId: page.partner?.id },
-        };
-      });
-      if (!page.more) break;
-    }
+    await pull(start, update);
 
     // Upload photos for moments taken on this phone
     // A photo that fails stays on this phone and is retried next round; it
@@ -197,6 +212,19 @@ async function runSync(getState: () => State, update: Update) {
         });
         return { ...s, sync: { ...s.sync, pushed } };
       });
+    }
+
+    // Keep the private backup current, for moving to a new phone.
+    const latest = getState();
+    if (latest.account) {
+      const backup = backupOf(latest);
+      const print = fingerprint(backup);
+      if (print !== latest.account.backupPrint) {
+        await request(start, '/api/backup', { method: 'POST', body: JSON.stringify({ data: backup }) });
+        update((s) =>
+          s.account ? { ...s, account: { ...s.account, backupPrint: print, backedUpAt: new Date().toISOString() } } : s,
+        );
+      }
     }
 
     update((s) => (s.sync ? { ...s, sync: { ...s.sync, lastSyncAt: new Date().toISOString(), error: photoError } } : s));

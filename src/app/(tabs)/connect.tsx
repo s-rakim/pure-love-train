@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 
 import { QuestionCard } from '../../components/QuestionCard';
 import { Body, Button, Card, Eyebrow, Field, Row, Screen, SectionTitle, Title } from '../../components/ui';
@@ -7,10 +7,12 @@ import { relativeTime, shortDate } from '../../lib/dates';
 import { useNames, useToday } from '../../lib/hooks';
 import { questionForDay } from '../../lib/questions';
 import { newId, useStore } from '../../lib/store';
-import { colors, fonts, radius, space } from '../../theme';
+import { fonts, makeStyles, radius, space, useTheme } from '../../theme';
 
 /** Talking to each other: today's question, love notes and every answer so far. */
 export default function Connect() {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const { state, update } = useStore();
   const names = useNames();
   const today = useToday();
@@ -42,17 +44,12 @@ export default function Connect() {
 
       <SectionTitle>Love notes</SectionTitle>
       <Card>
-        <Row>
-          <View style={{ flex: 1 }}>
-            <Field value={note} onChangeText={setNote} placeholder={`Leave a note for ${names.partner}…`} />
-          </View>
-          <Button label="Send" onPress={sendNote} disabled={!note.trim()} />
-        </Row>
+        {/* Like any chat: oldest at the top, newest just above the box you type in. */}
         {state.notes.length ? (
-          state.notes.slice(0, 20).map((n) => (
+          state.notes.slice(0, 20).reverse().map((n) => (
             <View key={n.id} style={[styles.bubble, n.from === 'me' ? styles.mine : styles.theirs]}>
-              <Text style={styles.bubbleText}>{n.text}</Text>
-              <Text style={styles.bubbleMeta}>
+              <Text style={[styles.bubbleText, n.from === 'me' && styles.onFlame]}>{n.text}</Text>
+              <Text style={[styles.bubbleMeta, n.from === 'me' && styles.onFlame]}>
                 {n.from === 'me' ? names.me : names.partner} · {relativeTime(n.createdAt)}
               </Text>
             </View>
@@ -60,6 +57,12 @@ export default function Connect() {
         ) : (
           <Body muted>Notes you send each other show up here.</Body>
         )}
+        <Row>
+          <View style={{ flex: 1 }}>
+            <Field value={note} onChangeText={setNote} placeholder={`Leave a note for ${names.partner}…`} />
+          </View>
+          <Button label="Send" onPress={sendNote} disabled={!note.trim()} />
+        </Row>
       </Card>
 
       {pastAnswers.length ? (
@@ -85,12 +88,13 @@ export default function Connect() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   bubble: { borderRadius: radius.md, paddingHorizontal: space(3.5), paddingVertical: space(2.5), maxWidth: '85%', gap: 2 },
   mine: { alignSelf: 'flex-end', backgroundColor: colors.flame, borderBottomRightRadius: 6 },
   theirs: { alignSelf: 'flex-start', backgroundColor: colors.surfaceRaised, borderBottomLeftRadius: 6 },
   bubbleText: { fontFamily: fonts.body, fontSize: 15, lineHeight: 21, color: colors.ink },
   bubbleMeta: { fontFamily: fonts.body, fontSize: 11, color: colors.ink, opacity: 0.6 },
+  onFlame: { color: colors.white },
   pastQuestion: { fontFamily: fonts.bodyBold, fontSize: 16, lineHeight: 22, color: colors.ink },
   who: { fontFamily: fonts.bodyBold, color: colors.ink },
-});
+}));

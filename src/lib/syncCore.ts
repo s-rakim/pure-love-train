@@ -1,6 +1,6 @@
 import { predict } from './cycle.ts';
 import { todayKey, type DateKey } from './dates.ts';
-import type { Moment, Note, PartnerCycle, State } from './store';
+import type { Coupon, Moment, Note, PartnerCycle, Person, State } from './store';
 
 /** A record as the sync server stores it. */
 export type SyncRecord = {
@@ -13,7 +13,7 @@ export type SyncRecord = {
 export type PulledRecord = SyncRecord & { author: string; seq: number };
 
 /** Kinds either partner may edit; everything else belongs to its author. */
-const SHARED = new Set(['dateIdea', 'couple']);
+const SHARED = new Set(['dateIdea', 'couple', 'coupon']);
 
 export const recordKey = (r: { kind: string; id: string }) => `${r.kind}:${r.id}`;
 export const fingerprint = (data: unknown) => JSON.stringify(data ?? null);
@@ -51,7 +51,24 @@ export function outgoingRecords(s: State, today: DateKey = todayKey()): Map<stri
 
   add('couple', 'settings', { togetherSince: s.togetherSince ?? null });
   for (const d of s.dateIdeas) add('dateIdea', d.id, { text: d.text, done: d.done });
+  for (const c of s.coupons ?? []) {
+    // Either of you may update a coupon (the giver writes it, the other redeems it), so the
+    // giver travels inside the data. Field order matters: it must match what was pulled.
+    const giver = c.from === 'me' ? me : c.giver;
+    if (giver) add('coupon', c.id, { emoji: c.emoji, text: c.text, giver, createdAt: c.createdAt, redeemedAt: c.redeemedAt ?? null });
+  }
   return out;
+}
+
+/**
+ * What only this phone knows (names, the anniversary, cycle logs, the chosen look),
+ * saved privately on the server under your account so a new phone can get it back.
+ * Everything else comes back from the shared records.
+ */
+export type Backup = Pick<State, 'names' | 'cycle'> & { togetherSince: DateKey | null; appearance: string };
+
+export function backupOf(s: State): Backup {
+  return { names: s.names, togetherSince: s.togetherSince ?? null, cycle: s.cycle, appearance: s.appearance ?? 'system' };
 }
 
 /** Records that changed since they were last pushed, including deletions. */
@@ -74,18 +91,32 @@ export function pendingChanges(s: State, today?: DateKey): SyncRecord[] {
 /**
  * Folds the partner's records into local state. Moment records need a local
  * photo, so the caller passes the uri it downloaded for each one.
+ *
+ * `includeMine` also applies records this member wrote, which is how a new
+ * phone gets back everything the old one shared after signing in.
  */
-export function applyRecords(s: State, records: PulledRecord[], photoUris: Record<string, string> = {}): State {
+export function applyRecords(
+  s: State,
+  records: PulledRecord[],
+  photoUris: Record<string, string> = {},
+  includeMine = false,
+): State {
   if (!s.sync) return s;
   const me = s.sync.memberId;
   let next: State = { ...s, sync: { ...s.sync, pushed: { ...s.sync.pushed } } };
   const pushed = next.sync!.pushed;
 
   for (const r of records) {
-    if (r.author === me) continue;
+    const mine = r.author === me;
+    if (mine && !includeMine) continue;
+    const side: Person = mine ? 'me' : 'partner';
     const data = (r.deleted ? null : r.data) as any;
     const key = recordKey(r);
-    if (SHARED.has(r.kind)) {
+    if (mine) {
+      // Already on the server as it is, so there's nothing to send back.
+      if (data) pushed[key] = fingerprint(data);
+      else delete pushed[key];
+    } else if (SHARED.has(r.kind)) {
       // Remember the partner's version as already in sync so it isn't echoed back.
       if (data) pushed[key] = fingerprint(data);
       else delete pushed[key];
@@ -93,26 +124,26 @@ export function applyRecords(s: State, records: PulledRecord[], photoUris: Recor
 
     switch (r.kind) {
       case 'profile':
-        if (data?.name) next = { ...next, names: { ...next.names, partner: data.name } };
+        if (data?.name) next = { ...next, names: { ...next.names, [side]: data.name } };
         break;
       case 'mood': {
         const moods = { ...next.moods };
-        if (data) moods.partner = data;
-        else delete moods.partner;
+        if (data) moods[side] = data;
+        else delete moods[side];
         next = { ...next, moods };
         break;
       }
       case 'answer': {
         const date = (data?.date ?? r.id.split(':').pop()) as DateKey;
         const day = { ...next.answers[date] };
-        if (data) day.partner = data.text;
-        else delete day.partner;
+        if (data) day[side] = data.text;
+        else delete day[side];
         next = { ...next, answers: { ...next.answers, [date]: day } };
         break;
       }
       case 'note': {
         const notes = next.notes.filter((n) => n.id !== r.id);
-        if (data) notes.push({ id: r.id, text: data.text, from: 'partner', createdAt: data.createdAt } satisfies Note);
+        if (data) notes.push({ id: r.id, text: data.text, from: side, createdAt: data.createdAt } satisfies Note);
         notes.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
         next = { ...next, notes };
         break;
@@ -125,7 +156,7 @@ export function applyRecords(s: State, records: PulledRecord[], photoUris: Recor
             id: r.id,
             uri,
             caption: data.caption ?? '',
-            from: 'partner',
+            from: side,
             createdAt: data.createdAt,
             photoId: data.photoId,
           } satisfies Moment);
@@ -135,13 +166,31 @@ export function applyRecords(s: State, records: PulledRecord[], photoUris: Recor
         break;
       }
       case 'cycle':
-        next = { ...next, partnerCycle: data ?? undefined };
+        // Your own summary is worked out from your logs, which come back with your backup.
+        if (!mine) next = { ...next, partnerCycle: data ?? undefined };
         break;
       case 'couple':
         // An empty date from the partner never wipes one set on this phone; ours gets pushed instead.
         if (data?.togetherSince) next = { ...next, togetherSince: data.togetherSince };
         else if (next.togetherSince) delete pushed[key];
         break;
+      case 'coupon': {
+        const coupons = (next.coupons ?? []).filter((c) => c.id !== r.id);
+        if (data) {
+          coupons.push({
+            id: r.id,
+            emoji: data.emoji,
+            text: data.text,
+            from: data.giver === me ? 'me' : 'partner',
+            giver: data.giver,
+            createdAt: data.createdAt,
+            redeemedAt: data.redeemedAt ?? undefined,
+          } satisfies Coupon);
+        }
+        coupons.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
+        next = { ...next, coupons };
+        break;
+      }
       case 'dateIdea': {
         const exists = next.dateIdeas.some((d) => d.id === r.id);
         const dateIdeas = !data

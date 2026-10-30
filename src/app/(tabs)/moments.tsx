@@ -1,7 +1,9 @@
 import { Ionicons } from '@expo/vector-icons';
 import { Image } from 'expo-image';
+import { router } from 'expo-router';
 import { useState } from 'react';
 import { Alert, Platform, Pressable, StyleSheet, Text, View } from 'react-native';
+import { requestPinWidget } from 'react-native-android-widget';
 
 import { PhotoWidget } from '../../components/PhotoWidget';
 import { Body, Button, Card, Eyebrow, Field, Row, Screen, Title } from '../../components/ui';
@@ -9,9 +11,12 @@ import { relativeTime } from '../../lib/dates';
 import { useNames } from '../../lib/hooks';
 import { deletePhoto, persistPhoto, pickPhoto } from '../../lib/moments';
 import { newId, useStore, type Moment } from '../../lib/store';
-import { colors, fonts, radius, space } from '../../theme';
+import { fonts, makeStyles, radius, space, useTheme } from '../../theme';
+import { WIDGET_NAME } from '../../widget/MomentWidget';
 
 export default function Moments() {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const { state, update } = useStore();
   const names = useNames();
   const [draftUri, setDraftUri] = useState<string | null>(null);
@@ -47,6 +52,16 @@ export default function Moments() {
     }
   };
 
+  const addWidget = async () => {
+    const pinned = await requestPinWidget({ widgetName: WIDGET_NAME }).catch(() => false);
+    if (!pinned) {
+      Alert.alert(
+        'Add it from your home screen',
+        "Press and hold an empty spot on your home screen, tap Widgets, then find Pure Love.",
+      );
+    }
+  };
+
   const remove = (moment: Moment) => {
     const doRemove = () => {
       deletePhoto(moment.uri);
@@ -74,6 +89,14 @@ export default function Moments() {
             ? `${names.partner} sees your last moment from ${relativeTime(latestFromMe.createdAt)}.`
             : `Send your first moment and it lands on ${names.partner}'s widget.`}
         </Body>
+        {Platform.OS === 'android' ? (
+          <Button
+            label="Add the widget to your home screen"
+            variant="secondary"
+            onPress={addWidget}
+            icon={<Ionicons name="add-circle-outline" size={18} color={colors.flameDeep} />}
+          />
+        ) : null}
       </Card>
 
       {draftUri ? (
@@ -115,7 +138,13 @@ export default function Moments() {
       ) : (
         <View style={styles.grid}>
           {state.moments.map((m) => (
-            <Pressable key={m.id} onLongPress={() => remove(m)} style={styles.tile}>
+            <Pressable
+              key={m.id}
+              accessibilityLabel={`Open ${m.from === 'me' ? 'your' : `${names.partner}'s`} moment`}
+              onPress={() => router.push(`/moment/${m.id}`)}
+              onLongPress={() => remove(m)}
+              style={styles.tile}
+            >
               <Image source={{ uri: m.uri }} style={StyleSheet.absoluteFill} contentFit="cover" />
               <View style={styles.tileMeta}>
                 <Text style={styles.tileText} numberOfLines={1}>
@@ -128,13 +157,13 @@ export default function Moments() {
         </View>
       )}
       {state.moments.length > 0 ? (
-        <Body muted style={{ fontSize: 12, textAlign: 'center' }}>Press and hold a photo to delete it.</Body>
+        <Body muted style={{ fontSize: 12, textAlign: 'center' }}>Tap a photo to see it full size and save it. Press and hold to delete.</Body>
       ) : null}
     </Screen>
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   draft: { width: '100%', aspectRatio: 1, borderRadius: radius.md },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: space(2) },
   tile: {
@@ -154,4 +183,4 @@ const styles = StyleSheet.create({
     paddingVertical: 3,
   },
   tileText: { fontFamily: fonts.bodyMedium, fontSize: 10, color: colors.white },
-});
+}));

@@ -1,10 +1,10 @@
 import { Ionicons } from '@expo/vector-icons';
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 
 import type { DayKind } from '../lib/cycle';
 import { fromKey, monthGrid, monthLabel, type DateKey } from '../lib/dates';
-import { colors, fonts, radius } from '../theme';
+import { fonts, makeStyles, radius, useTheme } from '../theme';
 import { tap } from './ui';
 
 const WEEKDAYS = ['S', 'M', 'T', 'W', 'T', 'F', 'S'];
@@ -22,6 +22,9 @@ export function MonthCalendar({
   logged: Record<DateKey, unknown>;
   onSelect: (key: DateKey) => void;
 }) {
+  const { colors } = useTheme();
+  const styles = useStyles();
+  const dayStyles = useDayStyles();
   const t = fromKey(today);
   const [cursor, setCursor] = useState({ year: t.getFullYear(), month: t.getMonth() });
   const cells = monthGrid(cursor.year, cursor.month);
@@ -99,6 +102,7 @@ export function MonthCalendar({
 }
 
 function Legend({ color, label, border }: { color: string; label: string; border?: string }) {
+  const styles = useStyles();
   return (
     <View style={styles.legendItem}>
       <View
@@ -113,7 +117,7 @@ function Legend({ color, label, border }: { color: string; label: string; border
   );
 }
 
-const dayStyles = StyleSheet.create({
+const useDayStyles = makeStyles((colors) => ({
   period: { backgroundColor: colors.flame },
   predicted: {
     backgroundColor: colors.flameSoft,
@@ -123,9 +127,9 @@ const dayStyles = StyleSheet.create({
   },
   fertile: { backgroundColor: colors.fertile },
   ovulation: { backgroundColor: colors.plum },
-});
+}));
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 12 },
   month: { fontFamily: fonts.display, fontSize: 19, color: colors.ink },
   grid: { flexDirection: 'row', flexWrap: 'wrap' },
@@ -160,4 +164,4 @@ const styles = StyleSheet.create({
   legendItem: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   legendSwatch: { width: 12, height: 12, borderRadius: 6 },
   legendText: { fontFamily: fonts.body, fontSize: 12, color: colors.inkSoft },
-});
+}));

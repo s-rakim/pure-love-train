@@ -6,7 +6,7 @@ import { Body, Button, Chip, Eyebrow, Field, Heading, Screen } from '../../compo
 import { addPeriodDay, isPeriodDay, removePeriodDay } from '../../lib/cycle';
 import { fromKey, isValidKey, todayKey } from '../../lib/dates';
 import { useStore, type DayLog, type Flow } from '../../lib/store';
-import { colors, space } from '../../theme';
+import { space, useTheme } from '../../theme';
 
 const FLOWS: { value: Flow; label: string }[] = [
   { value: 'spotting', label: 'Spotting' },
@@ -23,6 +23,7 @@ const SYMPTOMS = [
 const MOODS = ['Happy', 'Calm', 'Energetic', 'Sensitive', 'Irritable', 'Anxious', 'Sad'];
 
 export default function LogDay() {
+  const { colors } = useTheme();
   const { date } = useLocalSearchParams<{ date: string }>();
   const { state, update } = useStore();
   const valid = typeof date === 'string' && isValidKey(date);

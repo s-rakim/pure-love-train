@@ -1,5 +1,5 @@
 import { router } from 'expo-router';
-import { StyleSheet, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 
 import { MonthCalendar } from '../../components/MonthCalendar';
 import { Body, Button, Card, Chip, Eyebrow, Heading, Row, Screen, Title } from '../../components/ui';
@@ -7,9 +7,11 @@ import { addPeriodDay, isPeriodDay, phaseCopy } from '../../lib/cycle';
 import { shortDate } from '../../lib/dates';
 import { useCycle, useNames } from '../../lib/hooks';
 import { useStore } from '../../lib/store';
-import { colors, fonts, space } from '../../theme';
+import { fonts, makeStyles, space, useTheme } from '../../theme';
 
 export default function Cycle() {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const { state, update } = useStore();
   const names = useNames();
   const { prediction, map, today } = useCycle();
@@ -133,6 +135,7 @@ function dateRange(start: string, end: string) {
 }
 
 function Stat({ label, value, sub }: { label: string; value: string; sub: string }) {
+  const styles = useStyles();
   return (
     <Card style={{ flex: 1, gap: space(1) }}>
       <Eyebrow>{label}</Eyebrow>
@@ -143,6 +146,7 @@ function Stat({ label, value, sub }: { label: string; value: string; sub: string
 }
 
 function Average({ value, label }: { value: number; label: string }) {
+  const styles = useStyles();
   return (
     <View style={{ alignItems: 'center' }}>
       <Text style={styles.avgValue}>{value}</Text>
@@ -151,7 +155,7 @@ function Average({ value, label }: { value: number; label: string }) {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   ring: {
     width: 128,
     height: 128,
@@ -167,4 +171,4 @@ const styles = StyleSheet.create({
   onFlame: { color: colors.white, opacity: 0.92, textAlign: 'center' },
   statValue: { fontFamily: fonts.display, fontSize: 20, color: colors.ink },
   avgValue: { fontFamily: fonts.display, fontSize: 28, color: colors.flame },
-});
+}));

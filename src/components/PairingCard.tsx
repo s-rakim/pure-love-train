@@ -1,16 +1,18 @@
 import { useState } from 'react';
-import { ActivityIndicator, Alert, Platform, StyleSheet, Text, View } from 'react-native';
+import { ActivityIndicator, Alert, Platform, Text, View } from 'react-native';
 
 import { withDemoPartner } from '../lib/demo';
 import { relativeTime } from '../lib/dates';
 import { useNames } from '../lib/hooks';
 import { useStore } from '../lib/store';
 import { createSpace, joinSpace, normalizeServerUrl, syncOnce } from '../lib/sync';
-import { colors, fonts, radius, space } from '../theme';
+import { fonts, makeStyles, radius, space, useTheme } from '../theme';
 import { Body, Button, Card, Eyebrow, Field, Row } from './ui';
 
 /** Connects this phone to the couple's sync server and shows how pairing is going. */
 export function PairingCard() {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const { state, update } = useStore();
   const names = useNames();
   const [serverUrl, setServerUrl] = useState(state.sync?.serverUrl ?? '');
@@ -142,7 +144,7 @@ export function PairingCard() {
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   code: {
     alignSelf: 'center',
     backgroundColor: colors.flameSoft,
@@ -152,4 +154,4 @@ const styles = StyleSheet.create({
   },
   codeText: { fontFamily: fonts.display, fontSize: 30, letterSpacing: 6, color: colors.flameDeep },
   error: { fontFamily: fonts.body, fontSize: 13, lineHeight: 18, color: colors.flameDeep },
-});
+}));

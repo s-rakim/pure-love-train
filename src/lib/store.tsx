@@ -10,6 +10,7 @@ import {
   type ReactNode,
 } from 'react';
 
+import type { AppearancePref } from '../theme';
 import type { CycleSettings, Period, SharedCycle } from './cycle';
 import type { DateKey } from './dates';
 import { DATE_IDEAS } from './questions';
@@ -41,6 +42,18 @@ export type Mood = { emoji: string; label: string; at: string };
 
 export type ListItem = { id: string; text: string; done: boolean };
 
+/** A little promise one of you gives the other, redeemable whenever they like. */
+export type Coupon = {
+  id: string;
+  emoji: string;
+  text: string;
+  from: Person;
+  /** Member id of whoever gave it, kept so the shared record round-trips unchanged. */
+  giver?: string;
+  createdAt: string;
+  redeemedAt?: string;
+};
+
 /** What a partner shares about their cycle; raw logs and symptoms never leave the phone. */
 export type PartnerCycle = SharedCycle;
 
@@ -57,6 +70,16 @@ export type SyncState = {
   pushed: Record<string, string>;
   lastSyncAt?: string;
   error?: string;
+  /** Set on a phone restored from a backup until it has pulled back its own records too. */
+  restore?: boolean;
+};
+
+/** The Google account this phone is signed in with, for moving to a new phone. */
+export type Account = {
+  email: string;
+  /** Fingerprint of the backup last uploaded, so unchanged data isn't sent again. */
+  backupPrint?: string;
+  backedUpAt?: string;
 };
 
 export type State = {
@@ -75,8 +98,12 @@ export type State = {
   notes: Note[];
   moods: Partial<Record<Person, Mood>>;
   dateIdeas: ListItem[];
+  coupons: Coupon[];
   partnerCycle?: PartnerCycle;
   sync?: SyncState;
+  /** Light, dark or follow the phone. Stays on this phone and never syncs. */
+  appearance?: AppearancePref;
+  account?: Account;
 };
 
 const STORAGE_KEY = 'pure-love/state/v1';
@@ -99,7 +126,21 @@ export function initialState(): State {
     notes: [],
     moods: {},
     dateIdeas: DATE_IDEAS.map((text) => ({ id: newId(), text, done: false })),
+    coupons: [],
   };
+}
+
+/** Reads what was last saved on this phone, filling in anything newer versions added. */
+export async function loadSavedState(): Promise<State | null> {
+  const raw = await AsyncStorage.getItem(STORAGE_KEY);
+  if (!raw) return null;
+  const saved = JSON.parse(raw) as Partial<State>;
+  const base = initialState();
+  return { ...base, ...saved, cycle: { ...base.cycle, ...saved.cycle } };
+}
+
+export function saveState(state: State): Promise<void> {
+  return AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(state));
 }
 
 type Store = {
@@ -117,12 +158,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
-    AsyncStorage.getItem(STORAGE_KEY)
-      .then((raw) => {
-        if (!raw) return;
-        const saved = JSON.parse(raw) as Partial<State>;
-        const base = initialState();
-        setState({ ...base, ...saved, cycle: { ...base.cycle, ...saved.cycle } });
+    loadSavedState()
+      .then((saved) => {
+        if (saved) setState(saved);
       })
       .catch((err) => console.warn('Could not load saved data', err))
       .finally(() => setReady(true));
@@ -132,14 +170,13 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (!ready) return;
     if (saveTimer.current) clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(() => {
-      AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(state)).catch((err) =>
-        console.warn('Could not save data', err),
-      );
+      saveState(state).catch((err) => console.warn('Could not save data', err));
     }, 250);
   }, [state, ready]);
 
   const update = useCallback((fn: (s: State) => State) => setState(fn), []);
-  const reset = useCallback(() => setState(initialState()), []);
+  // Erasing data keeps the chosen look; it isn't part of what you two shared.
+  const reset = useCallback(() => setState((s) => ({ ...initialState(), appearance: s.appearance })), []);
 
   const value = useMemo(() => ({ state, ready, update, reset }), [state, ready, update, reset]);
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;

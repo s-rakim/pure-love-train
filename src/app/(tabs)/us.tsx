@@ -1,15 +1,14 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
-
-import { router } from 'expo-router';
+import { router, useLocalSearchParams } from 'expo-router';
+import { useEffect, useRef, useState } from 'react';
+import { Pressable, Text, View } from 'react-native';
 
 import { Flame } from '../../components/Flame';
-import { Avatar, Body, Button, Card, Eyebrow, Field, Row, Screen, SectionTitle, Title } from '../../components/ui';
+import { Avatar, Body, Button, Card, Eyebrow, Field, Row, Screen, SectionTitle, Sheet, Title } from '../../components/ui';
 import { addDays, diffDays, fromKey, shortDate, toKey, type DateKey } from '../../lib/dates';
 import { useDaysTogether, useNames, useStreak, useToday } from '../../lib/hooks';
 import { newId, useStore } from '../../lib/store';
-import { colors, fonts, radius, space } from '../../theme';
+import { fonts, makeStyles, radius, space, useTheme } from '../../theme';
 
 type Milestone = { label: string; date: DateKey; daysAway: number };
 
@@ -51,12 +50,46 @@ function together(since: DateKey, today: DateKey) {
 
 /** The couple's dashboard: streak, time together, what's coming up and plans. */
 export default function Us() {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const { state, update } = useStore();
   const names = useNames();
   const today = useToday();
   const days = useDaysTogether();
   const streak = useStreak();
   const [idea, setIdea] = useState('');
+  const { spin: spinParam } = useLocalSearchParams<{ spin?: string }>();
+  const [picked, setPicked] = useState<{ id: string; text: string } | null>(null);
+  const [spinning, setSpinning] = useState(false);
+  const spinTimer = useRef<ReturnType<typeof setInterval> | null>(null);
+  const open = state.dateIdeas.filter((d) => !d.done);
+
+  // Date night spin: flick through the open ideas for a moment, then land on one.
+  const spin = () => {
+    if (!open.length || spinTimer.current) return;
+    setSpinning(true);
+    let ticks = 0;
+    spinTimer.current = setInterval(() => {
+      setPicked(open[Math.floor(Math.random() * open.length)]);
+      ticks += 1;
+      if (ticks >= 12) {
+        clearInterval(spinTimer.current!);
+        spinTimer.current = null;
+        setSpinning(false);
+      }
+    }, 70);
+  };
+
+  useEffect(() => () => {
+    if (spinTimer.current) clearInterval(spinTimer.current);
+  }, []);
+
+  // Arriving from the Home tile spins straight away.
+  useEffect(() => {
+    if (spinParam !== '1') return;
+    router.setParams({ spin: undefined });
+    spin();
+  }, [spinParam]);
 
   const milestones = upcomingMilestones(state.togetherSince, today);
   const span = state.togetherSince ? together(state.togetherSince, today) : null;
@@ -116,7 +149,7 @@ export default function Us() {
                   d.isToday && !d.active && { borderColor: colors.flame },
                 ]}
               >
-                {d.active ? <Ionicons name="flame" size={14} color={colors.black} /> : null}
+                {d.active ? <Ionicons name="flame" size={14} color={colors.onAccent} /> : null}
               </View>
             </View>
           ))}
@@ -171,7 +204,18 @@ export default function Us() {
         </>
       ) : null}
 
-      <SectionTitle>Date ideas</SectionTitle>
+      <SectionTitle
+        action={
+          open.length ? (
+            <Pressable accessibilityRole="button" onPress={spin} style={styles.spinButton}>
+              <Ionicons name="shuffle" size={16} color={colors.flameDeep} />
+              <Text style={styles.spinLabel}>Spin</Text>
+            </Pressable>
+          ) : null
+        }
+      >
+        Date ideas
+      </SectionTitle>
       <Card>
         <Row>
           <View style={{ flex: 1 }}>
@@ -200,11 +244,27 @@ export default function Us() {
           </Row>
         ))}
       </Card>
+
+      <Sheet visible={!!picked} title="Tonight's date" onClose={() => setPicked(null)}>
+        <Text style={[styles.picked, spinning && { opacity: 0.5 }]}>{picked?.text}</Text>
+        <Row style={{ opacity: spinning ? 0 : 1 }}>
+          <Button label="Spin again" variant="ghost" onPress={spin} disabled={spinning} style={{ flex: 1 }} />
+          <Button
+            label="We did it"
+            disabled={spinning}
+            style={{ flex: 1 }}
+            onPress={() => {
+              if (picked) toggleIdea(picked.id);
+              setPicked(null);
+            }}
+          />
+        </Row>
+      </Sheet>
     </Screen>
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   pairTitle: { fontFamily: fonts.bodyBold, fontSize: 18, color: colors.white },
   pairBody: { fontFamily: fonts.body, fontSize: 14, lineHeight: 20, color: colors.white, opacity: 0.9 },
   bigNumber: { fontFamily: fonts.display, fontSize: 48, lineHeight: 52, color: colors.ink, marginTop: -space(2) },
@@ -234,4 +294,22 @@ const styles = StyleSheet.create({
   idea: { paddingVertical: space(1) },
   ideaText: { flex: 1, fontFamily: fonts.body, fontSize: 15, color: colors.ink },
   ideaDone: { color: colors.muted, textDecorationLine: 'line-through' },
-});
+  spinButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+    paddingHorizontal: space(3),
+    height: 32,
+    borderRadius: radius.pill,
+    backgroundColor: colors.flameSoft,
+  },
+  spinLabel: { fontFamily: fonts.bodyBold, fontSize: 13, color: colors.flameDeep },
+  picked: {
+    fontFamily: fonts.display,
+    fontSize: 26,
+    lineHeight: 32,
+    color: colors.ink,
+    textAlign: 'center',
+    paddingVertical: space(4),
+  },
+}));

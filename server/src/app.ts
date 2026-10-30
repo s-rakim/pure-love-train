@@ -9,7 +9,7 @@ import type { RecordRow } from './db.ts';
 /** Records each partner owns; only their author may change them. */
 const OWNED_KINDS = new Set(['profile', 'mood', 'answer', 'note', 'moment', 'cycle']);
 /** Records either partner may change; the latest write wins. */
-const SHARED_KINDS = new Set(['dateIdea', 'couple']);
+const SHARED_KINDS = new Set(['dateIdea', 'couple', 'coupon']);
 
 const MAX_JSON_BYTES = 1_000_000;
 const MAX_PHOTO_BYTES = 15_000_000;
@@ -17,6 +17,40 @@ const MAX_RECORD_BYTES = 20_000;
 const PAGE_SIZE = 500;
 
 type Member = { id: string; couple_id: string; name: string };
+
+/** Who Google says signed in, after the ID token has been checked. */
+export type GoogleIdentity = { subject: string; email: string };
+
+export type AppOptions = {
+  /** The OAuth web client ID Google sign-in tokens must be issued for. */
+  googleClientId?: string;
+  /** Checks a Google ID token; swapped out in tests. */
+  verifyGoogle?: (idToken: string, clientId: string) => Promise<GoogleIdentity>;
+};
+
+/** Asks Google whether an ID token is genuine and meant for this server's client. */
+export async function verifyGoogleIdToken(idToken: string, clientId: string): Promise<GoogleIdentity> {
+  let res: Response;
+  try {
+    res = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`);
+  } catch {
+    throw new HttpError(502, "Couldn't reach Google to check the sign-in");
+  }
+  const info = (await res.json().catch(() => ({}))) as Record<string, string | undefined>;
+  const issuers = ['accounts.google.com', 'https://accounts.google.com'];
+  if (
+    !res.ok ||
+    info.aud !== clientId ||
+    !issuers.includes(info.iss ?? '') ||
+    Number(info.exp ?? 0) * 1000 < Date.now() ||
+    !info.sub ||
+    !info.email ||
+    String(info.email_verified) !== 'true'
+  ) {
+    throw new HttpError(401, 'Google sign-in could not be verified');
+  }
+  return { subject: info.sub, email: info.email };
+}
 
 class HttpError extends Error {
   status: number;
@@ -74,11 +108,29 @@ function cleanName(value: unknown): string {
   return name;
 }
 
-export function createApp(db: DatabaseSync, dataDir: string) {
+export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions = {}) {
+  const googleClientId = options.googleClientId || null;
+  const verifyGoogle = options.verifyGoogle ?? verifyGoogleIdToken;
   const photoDir = join(dataDir, 'photos');
   mkdirSync(photoDir, { recursive: true });
 
-  const findMemberByToken = db.prepare('SELECT id, couple_id, name FROM members WHERE token_hash = ?');
+  const findMemberByToken = db.prepare(`
+    SELECT id, couple_id, name FROM members WHERE token_hash = ?1
+    UNION SELECT m.id, m.couple_id, m.name FROM member_tokens t JOIN members m ON m.id = t.member_id WHERE t.token_hash = ?1
+  `);
+  const insertToken = db.prepare('INSERT INTO member_tokens (token_hash, member_id, created_at) VALUES (?, ?, ?)');
+  const getMember = db.prepare('SELECT id, couple_id, name FROM members WHERE id = ?');
+  const findAccount = db.prepare("SELECT member_id, email FROM accounts WHERE provider = 'google' AND subject = ?");
+  const deleteAccountsOfMember = db.prepare('DELETE FROM accounts WHERE member_id = ?');
+  const insertAccount = db.prepare(
+    "INSERT INTO accounts (provider, subject, member_id, email, created_at) VALUES ('google', ?, ?, ?, ?)",
+  );
+  const getBackup = db.prepare('SELECT data FROM backups WHERE member_id = ?');
+  const upsertBackup = db.prepare(`
+    INSERT INTO backups (member_id, data, updated_at) VALUES (?, ?, ?)
+    ON CONFLICT (member_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at
+  `);
+  const deleteBackup = db.prepare('DELETE FROM backups WHERE member_id = ?');
   const insertCouple = db.prepare('INSERT INTO couples (id, pair_code, created_at) VALUES (?, ?, ?)');
   const insertMember = db.prepare(
     'INSERT INTO members (id, couple_id, name, token_hash, created_at) VALUES (?, ?, ?, ?, ?)',
@@ -211,6 +263,69 @@ export function createApp(db: DatabaseSync, dataDir: string) {
     send(res, 200, { results });
   }
 
+  async function googleIdentity(req: IncomingMessage): Promise<GoogleIdentity> {
+    if (!googleClientId) throw new HttpError(501, 'Google sign-in is not set up on this server');
+    const body = await readJson(req);
+    const idToken = typeof body.idToken === 'string' ? body.idToken : '';
+    if (!idToken) throw new HttpError(400, 'idToken is required');
+    return verifyGoogle(idToken, googleClientId);
+  }
+
+  /** Links the signed-in member to a Google account (replacing any earlier one). */
+  async function linkGoogle(req: IncomingMessage, res: ServerResponse) {
+    const member = authenticate(req);
+    const identity = await googleIdentity(req);
+    const existing = findAccount.get(identity.subject) as { member_id: string } | undefined;
+    if (existing && existing.member_id !== member.id) {
+      throw new HttpError(409, 'That Google account is already linked to someone else');
+    }
+    db.exec('BEGIN');
+    try {
+      deleteAccountsOfMember.run(member.id);
+      insertAccount.run(identity.subject, member.id, identity.email, now());
+      db.exec('COMMIT');
+    } catch (err) {
+      db.exec('ROLLBACK');
+      throw err;
+    }
+    send(res, 200, { email: identity.email });
+  }
+
+  /** On a new phone: signs back in as the linked member and hands back their backup. */
+  async function restoreGoogle(req: IncomingMessage, res: ServerResponse) {
+    const identity = await googleIdentity(req);
+    const account = findAccount.get(identity.subject) as { member_id: string } | undefined;
+    const member = account ? (getMember.get(account.member_id) as Member | undefined) : undefined;
+    if (!member) {
+      throw new HttpError(404, 'Nothing is linked to this Google account yet. Sign in with Google on your old phone first.');
+    }
+    const token = randomBytes(32).toString('hex');
+    insertToken.run(hashToken(token), member.id, now());
+    const backup = getBackup.get(member.id) as { data: string } | undefined;
+    send(res, 200, {
+      token,
+      name: member.name,
+      email: identity.email,
+      backup: backup ? JSON.parse(backup.data) : null,
+      ...describe(member),
+    });
+  }
+
+  function unlinkGoogle(req: IncomingMessage, res: ServerResponse) {
+    const member = authenticate(req);
+    deleteAccountsOfMember.run(member.id);
+    deleteBackup.run(member.id);
+    send(res, 200, { ok: true });
+  }
+
+  async function saveBackup(req: IncomingMessage, res: ServerResponse) {
+    const member = authenticate(req);
+    const body = await readJson(req);
+    if (!body.data || typeof body.data !== 'object') throw new HttpError(400, 'data must be an object');
+    upsertBackup.run(member.id, JSON.stringify(body.data), now());
+    send(res, 200, { ok: true });
+  }
+
   async function uploadPhoto(req: IncomingMessage, res: ServerResponse) {
     const member = authenticate(req);
     const mime = String(req.headers['content-type'] ?? '').split(';')[0].trim();
@@ -249,6 +364,11 @@ export function createApp(db: DatabaseSync, dataDir: string) {
       if (route === 'POST /api/couples') return await createCouple(req, res);
       if (route === 'POST /api/couples/join') return await joinCouple(req, res);
       if (route === 'GET /api/me') return send(res, 200, describe(authenticate(req)));
+      if (route === 'GET /api/config') return send(res, 200, { googleClientId });
+      if (route === 'POST /api/account/google') return await linkGoogle(req, res);
+      if (route === 'POST /api/account/google/restore') return await restoreGoogle(req, res);
+      if (route === 'POST /api/account/google/unlink') return unlinkGoogle(req, res);
+      if (route === 'POST /api/backup') return await saveBackup(req, res);
       if (route === 'GET /api/sync') return getSync(req, res, url);
       if (route === 'POST /api/sync') return await postSync(req, res);
       if (route === 'POST /api/photos') return await uploadPhoto(req, res);

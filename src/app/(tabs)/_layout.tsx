@@ -3,8 +3,9 @@ import { Redirect } from 'expo-router';
 import { Tabs } from 'expo-router/js-tabs';
 import type { ColorValue } from 'react-native';
 
+import { Glass } from '../../components/ui';
 import { useStore } from '../../lib/store';
-import { colors, fonts } from '../../theme';
+import { fonts, useTheme } from '../../theme';
 
 type IconName = keyof typeof Ionicons.glyphMap;
 
@@ -16,6 +17,7 @@ const tab = (title: string, icon: IconName, activeIcon: IconName) => ({
 });
 
 export default function TabsLayout() {
+  const { colors } = useTheme();
   const { state } = useStore();
   if (!state.onboarded) return <Redirect href="/onboarding" />;
 
@@ -36,12 +38,12 @@ export default function TabsLayout() {
           paddingTop: 10,
           paddingBottom: 12,
           borderRadius: 34,
-          borderTopWidth: 1,
-          borderWidth: 1,
-          borderColor: colors.line,
-          borderTopColor: colors.line,
-          backgroundColor: colors.surface,
+          borderTopWidth: 0,
+          borderWidth: 0,
+          backgroundColor: 'transparent',
+          elevation: 0,
         },
+        tabBarBackground: () => <Glass radius={34} />,
         sceneStyle: { backgroundColor: colors.background },
       }}
     >

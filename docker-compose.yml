@@ -5,6 +5,9 @@ services:
     restart: unless-stopped
     ports:
       - "8787:8787"
+    environment:
+      # For "Sign in with Google": the web client ID from Google Cloud. Put it in a .env file next to this one.
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
     volumes:
       - pure-love-data:/data
 

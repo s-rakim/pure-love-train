@@ -1,6 +1,14 @@
+import { createContext, useContext } from 'react';
+import { StyleSheet } from 'react-native';
+
+export type Scheme = 'light' | 'dark';
+export type AppearancePref = 'system' | Scheme;
+
 // Candlelit at night: near-black surfaces, warm off-white text and a bright flame accent.
-export const colors = {
+const dark = {
   background: '#0B0A09',
+  /** Top of the screen background; it fades into `background`. */
+  glow: '#0B0A09',
   surface: '#191615',
   surfaceRaised: '#231F1D',
   surfaceWarm: '#141110',
@@ -23,9 +31,86 @@ export const colors = {
   skySoft: '#132131',
   rose: '#FF5C8A',
   roseSoft: '#2E1520',
+  /** Icons sitting on a solid accent swatch. */
+  onAccent: '#0B0A09',
+  /** The flame mascot once the streak has gone out. */
+  ash: '#4A3F3A',
+  ashSoft: '#6B5E57',
+  /** A faint wash to set a box apart inside a tinted card. */
+  wash: 'rgba(0,0,0,0.25)',
+  /** Frosted glass for things that float over the page: the tab bar and sheets. */
+  glass: 'rgba(25,22,21,0.82)',
+  glassRim: 'rgba(255,255,255,0.10)',
+  glassSheen: 'rgba(255,255,255,0.07)',
   white: '#FFFFFF',
   black: '#0B0A09',
-} as const;
+};
+
+export type Palette = { [K in keyof typeof dark]: string };
+
+// Soft and romantic by day: a whisper of blush, white cards and a rose accent, kept light so it never gets loud.
+const light: Palette = {
+  background: '#FFF6F8',
+  glow: '#FFE7EE',
+  surface: '#FFFFFF',
+  surfaceRaised: '#FCEEF2',
+  surfaceWarm: '#FFFAFB',
+  ink: '#2E1A22',
+  inkSoft: '#654C57',
+  muted: '#A08893',
+  line: '#F4E1E7',
+  flame: '#E8577E',
+  flameDeep: '#B93A60',
+  flameSoft: '#FFE6ED',
+  blush: '#FAD3DE',
+  ember: '#F2A65A',
+  emberSoft: '#FFF1E2',
+  sage: '#E6F4EC',
+  sageDeep: '#3A9B6B',
+  fertile: '#C9EAD6',
+  plum: '#9A66D9',
+  plumSoft: '#F4ECFD',
+  sky: '#5B8FE0',
+  skySoft: '#EAF1FD',
+  rose: '#DD4B6B',
+  roseSoft: '#FDE7EC',
+  onAccent: '#FFFFFF',
+  ash: '#E8D3DA',
+  ashSoft: '#F3E4E9',
+  wash: 'rgba(232,87,126,0.07)',
+  glass: 'rgba(255,255,255,0.76)',
+  glassRim: 'rgba(232,87,126,0.16)',
+  glassSheen: 'rgba(255,255,255,0.6)',
+  white: '#FFFFFF',
+  black: '#0B0A09',
+};
+
+export const palettes: Record<Scheme, Palette> = { dark, light };
+
+export type Theme = { scheme: Scheme; colors: Palette };
+
+export const ThemeContext = createContext<Theme>({ scheme: 'dark', colors: dark });
+
+export function useTheme(): Theme {
+  return useContext(ThemeContext);
+}
+
+/**
+ * Builds a hook that returns a stylesheet for the current palette. Each
+ * palette's sheet is built once, so switching themes back and forth is free.
+ */
+export function makeStyles<T extends StyleSheet.NamedStyles<T>>(build: (colors: Palette) => T) {
+  const cache = new Map<Palette, T>();
+  return function useStyles(): T {
+    const { colors } = useTheme();
+    let sheet = cache.get(colors);
+    if (!sheet) {
+      sheet = StyleSheet.create(build(colors));
+      cache.set(colors, sheet);
+    }
+    return sheet;
+  };
+}
 
 export const fonts = {
   display: 'DMSans_700Bold',
@@ -46,10 +131,7 @@ export const radius = {
 export const space = (n: number) => n * 4;
 
 // Shadows barely read on black, so cards lean on a hairline border instead.
-export const shadow = {
-  borderWidth: 1,
-  borderColor: '#2D2826',
-} as const;
+export const shadow = (colors: Palette) => ({ borderWidth: 1, borderColor: colors.line }) as const;
 
 /** Room left under scrolling content for the floating tab bar. */
 export const TAB_BAR_SPACE = 120;

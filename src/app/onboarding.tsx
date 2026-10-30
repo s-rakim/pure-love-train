@@ -1,14 +1,19 @@
+import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { Text, View } from 'react-native';
 
 import { Flame } from '../components/Flame';
-import { Body, Button, Chip, Field, Screen, Title } from '../components/ui';
+import { Body, Button, Card, Chip, Field, Screen, Title } from '../components/ui';
+import { restoreWithGoogle } from '../lib/account';
 import { isValidKey } from '../lib/dates';
 import { useStore } from '../lib/store';
-import { colors, fonts, space } from '../theme';
+import { normalizeServerUrl } from '../lib/sync';
+import { fonts, makeStyles, space, useTheme } from '../theme';
 
 export default function Onboarding() {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const { state, update } = useStore();
   const [me, setMe] = useState(state.names.me);
   const [partner, setPartner] = useState(state.names.partner);
@@ -17,6 +22,26 @@ export default function Onboarding() {
 
   const sinceValid = since === '' || isValidKey(since);
   const canContinue = me.trim() && partner.trim() && sinceValid;
+
+  const [restoring, setRestoring] = useState(false);
+  const [serverUrl, setServerUrl] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const restore = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      const restored = await restoreWithGoogle(normalizeServerUrl(serverUrl));
+      if (!restored) return;
+      update(() => restored);
+      router.replace('/');
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const finish = () => {
     update((s) => ({
@@ -71,11 +96,43 @@ export default function Onboarding() {
       </View>
 
       <Button label="Let's begin" onPress={finish} disabled={!canContinue} />
+
+      <Card style={{ gap: space(3) }}>
+        <Text style={styles.label}>Moving from another phone?</Text>
+        {restoring ? (
+          <>
+            <Field
+              label="Your Pure Love server"
+              value={serverUrl}
+              onChangeText={setServerUrl}
+              placeholder="http://100.101.102.103:8787"
+              autoCapitalize="none"
+              autoCorrect={false}
+              keyboardType="url"
+            />
+            <Button
+              label={busy ? 'Restoring…' : 'Restore with Google'}
+              variant="secondary"
+              onPress={restore}
+              disabled={busy || !serverUrl.trim()}
+              icon={<Ionicons name="logo-google" size={18} color={colors.flameDeep} />}
+            />
+            {error ? <Text style={styles.error}>{error}</Text> : null}
+          </>
+        ) : (
+          <>
+            <Body muted style={{ fontSize: 13 }}>
+              If you signed in with Google on your old phone, you can bring everything across.
+            </Body>
+            <Button label="Restore with Google" variant="ghost" onPress={() => setRestoring(true)} />
+          </>
+        )}
+      </Card>
     </Screen>
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   label: { fontFamily: fonts.bodyBold, fontSize: 13, color: colors.inkSoft },
   error: { fontFamily: fonts.body, fontSize: 13, color: colors.flameDeep },
-});
+}));

@@ -44,6 +44,30 @@ export function openDb(path: string): DatabaseSync {
     );
     CREATE INDEX IF NOT EXISTS records_by_seq ON records (couple_id, seq);
 
+    -- Extra sign-ins for a member, such as a new phone restored with Google.
+    CREATE TABLE IF NOT EXISTS member_tokens (
+      token_hash TEXT PRIMARY KEY,
+      member_id TEXT NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL
+    );
+
+    -- A Google account linked to a member, so they can sign in again on a new phone.
+    CREATE TABLE IF NOT EXISTS accounts (
+      provider TEXT NOT NULL,
+      subject TEXT NOT NULL,
+      member_id TEXT NOT NULL UNIQUE REFERENCES members(id) ON DELETE CASCADE,
+      email TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      PRIMARY KEY (provider, subject)
+    );
+
+    -- Each member's private backup (names, anniversary, cycle logs). Only they can read it.
+    CREATE TABLE IF NOT EXISTS backups (
+      member_id TEXT PRIMARY KEY REFERENCES members(id) ON DELETE CASCADE,
+      data TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS photos (
       id TEXT PRIMARY KEY,
       couple_id TEXT NOT NULL REFERENCES couples(id) ON DELETE CASCADE,

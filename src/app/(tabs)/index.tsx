@@ -1,16 +1,24 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router, type Href } from 'expo-router';
 import { useState } from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, Text, View } from 'react-native';
 
 import { Flame } from '../../components/Flame';
 import { PhotoWidget } from '../../components/PhotoWidget';
-import { Body, Card, Chip, Eyebrow, Heading, Row, Screen, SectionTitle, Title, tap } from '../../components/ui';
+import { Body, Card, Chip, Eyebrow, Heading, Row, Screen, SectionTitle, Sheet, Title, tap } from '../../components/ui';
 import { phaseCopy, sharedCycleOn } from '../../lib/cycle';
 import { relativeTime, shortDate, toKey } from '../../lib/dates';
 import { useCycle, useDaysTogether, useNames, useStreak, useToday } from '../../lib/hooks';
-import { useStore, type Person } from '../../lib/store';
-import { colors, fonts, radius, space } from '../../theme';
+import { newId, useStore, type Person } from '../../lib/store';
+import { fonts, makeStyles, radius, space, useTheme } from '../../theme';
+
+const LOVE_TAPS = [
+  { emoji: '🤗', label: 'Hug', text: 'Sending you a big hug' },
+  { emoji: '😘', label: 'Kiss', text: 'Here’s a kiss for you' },
+  { emoji: '💭', label: 'Thinking of you', text: 'Thinking of you' },
+  { emoji: '🥺', label: 'Miss you', text: 'I miss you' },
+  { emoji: '💖', label: 'Love you', text: 'I love you' },
+];
 
 const MOODS = [
   { emoji: '🥰', label: 'Loved' },
@@ -31,6 +39,8 @@ function greeting(now = new Date()) {
 type IconName = keyof typeof Ionicons.glyphMap;
 
 export default function Home() {
+  const { colors } = useTheme();
+  const styles = useStyles();
   const { state, update } = useStore();
   const names = useNames();
   const today = useToday();
@@ -38,6 +48,8 @@ export default function Home() {
   const streak = useStreak();
   const { prediction } = useCycle();
   const [pickingMood, setPickingMood] = useState(false);
+  const [pickingTap, setPickingTap] = useState(false);
+  const [sentTap, setSentTap] = useState<string | null>(null);
 
   const latestFromPartner = state.moments.find((m) => m.from === 'partner');
   const latestNoteFromPartner = state.notes.find((n) => n.from === 'partner');
@@ -57,6 +69,18 @@ export default function Home() {
   };
 
   const nextIdea = state.dateIdeas.find((d) => !d.done)?.text;
+  const couponsToRedeem = (state.coupons ?? []).filter((c) => c.from === 'partner' && !c.redeemedAt).length;
+
+  // A love tap is a one-line note, so it reaches the partner like any other note.
+  const sendTap = (tap: (typeof LOVE_TAPS)[number]) => {
+    const text = `${tap.emoji} ${tap.text}`;
+    update((s) => ({
+      ...s,
+      notes: [{ id: newId(), text, from: 'me', createdAt: new Date().toISOString() }, ...s.notes],
+    }));
+    setSentTap(tap.label);
+    setPickingTap(false);
+  };
 
   return (
     <Screen>
@@ -183,6 +207,22 @@ export default function Home() {
           subtitle="Say something sweet"
           onPress={() => router.push('/connect')}
         />
+        <ActivityTile
+          icon="happy"
+          color={colors.ember}
+          tint={colors.emberSoft}
+          title="Send a hug"
+          subtitle={sentTap ? `${sentTap} sent` : 'One tap, straight to them'}
+          onPress={() => setPickingTap((v) => !v)}
+        />
+        <ActivityTile
+          icon="ticket"
+          color={colors.rose}
+          tint={colors.roseSoft}
+          title="Love coupons"
+          subtitle={couponsToRedeem ? `${couponsToRedeem} to redeem` : 'Give a sweet promise'}
+          onPress={() => router.push('/coupons')}
+        />
         {state.cycle.tracking && prediction ? (
           <ActivityTile
             icon="water"
@@ -197,9 +237,9 @@ export default function Home() {
           icon="sparkles"
           color={colors.sageDeep}
           tint={colors.sage}
-          title="Date idea"
-          subtitle={nextIdea ?? 'Add one together'}
-          onPress={() => router.push('/us')}
+          title="Date night spin"
+          subtitle={nextIdea ? 'Let fate pick tonight' : 'Add ideas together'}
+          onPress={() => router.push(nextIdea ? '/us?spin=1' : '/us')}
         />
         <ActivityTile
           icon="calendar"
@@ -210,6 +250,14 @@ export default function Home() {
           onPress={() => router.push(days !== null ? '/us' : '/settings')}
         />
       </View>
+      <Sheet visible={pickingTap} title={`Send ${names.partner} a little love`} onClose={() => setPickingTap(false)}>
+        <View style={styles.wrap}>
+          {LOVE_TAPS.map((t) => (
+            <Chip key={t.label} label={`${t.emoji} ${t.label}`} onPress={() => sendTap(t)} />
+          ))}
+        </View>
+        <Body muted style={{ fontSize: 13 }}>It lands in your love notes.</Body>
+      </Sheet>
     </Screen>
   );
 }
@@ -231,6 +279,8 @@ function ActivityTile({
   subtitle: string;
   onPress: () => void;
 }) {
+  const { colors } = useTheme();
+  const styles = useStyles();
   return (
     <Pressable
       onPress={() => {
@@ -240,7 +290,7 @@ function ActivityTile({
       style={({ pressed }) => [styles.tile, { backgroundColor: tint, transform: [{ scale: pressed ? 0.97 : 1 }] }]}
     >
       <View style={[styles.tileIcon, { backgroundColor: color }]}>
-        <Ionicons name={icon} size={20} color={colors.black} />
+        <Ionicons name={icon} size={20} color={colors.onAccent} />
       </View>
       <Text style={styles.tileTitle} numberOfLines={1}>{title}</Text>
       <Text style={styles.tileSubtitle} numberOfLines={2}>{subtitle}</Text>
@@ -249,6 +299,7 @@ function ActivityTile({
 }
 
 function PartnerCycleCard({ name }: { name: string }) {
+  const { colors } = useTheme();
   const { state } = useStore();
   const today = useToday();
   const c = state.partnerCycle!;
@@ -272,6 +323,7 @@ function PartnerCycleCard({ name }: { name: string }) {
 }
 
 function MoodTile({ who, name, onPress }: { who: Person; name: string; onPress?: () => void }) {
+  const styles = useStyles();
   const { state } = useStore();
   const mood = state.moods[who];
   return (
@@ -286,7 +338,7 @@ function MoodTile({ who, name, onPress }: { who: Person; name: string; onPress?:
   );
 }
 
-const styles = StyleSheet.create({
+const useStyles = makeStyles((colors) => ({
   streakPill: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -328,4 +380,4 @@ const styles = StyleSheet.create({
   tileIcon: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', marginBottom: space(1) },
   tileTitle: { fontFamily: fonts.bodyBold, fontSize: 16, color: colors.ink },
   tileSubtitle: { fontFamily: fonts.body, fontSize: 13, lineHeight: 18, color: colors.inkSoft },
-});
+}));

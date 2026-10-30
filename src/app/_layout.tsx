@@ -8,8 +8,10 @@ import { View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
 import { SyncAgent } from '../components/SyncAgent';
+import { ThemeProvider } from '../components/ThemeProvider';
+import { WidgetAgent } from '../components/WidgetAgent';
 import { StoreProvider, useStore } from '../lib/store';
-import { colors, fonts } from '../theme';
+import { fonts, useTheme } from '../theme';
 
 export default function RootLayout() {
   const [fontsLoaded] = useFonts({
@@ -21,19 +23,26 @@ export default function RootLayout() {
   return (
     <SafeAreaProvider>
       <StoreProvider>
-        <StatusBar style="light" />
-        {fontsLoaded ? <Navigator /> : <View style={{ flex: 1, backgroundColor: colors.background }} />}
+        <ThemeProvider>{fontsLoaded ? <Navigator /> : <Blank />}</ThemeProvider>
       </StoreProvider>
     </SafeAreaProvider>
   );
 }
 
+function Blank() {
+  const { colors } = useTheme();
+  return <View style={{ flex: 1, backgroundColor: colors.background }} />;
+}
+
 function Navigator() {
+  const { scheme, colors } = useTheme();
   const { ready } = useStore();
-  if (!ready) return <View style={{ flex: 1, backgroundColor: colors.background }} />;
+  if (!ready) return <Blank />;
   return (
     <>
+      <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
       <SyncAgent />
+      <WidgetAgent />
       <Stack
         screenOptions={{
           headerShadowVisible: false,
@@ -47,6 +56,8 @@ function Navigator() {
         <Stack.Screen name="onboarding" options={{ headerShown: false, gestureEnabled: false }} />
         <Stack.Screen name="log/[date]" options={{ presentation: 'modal', title: 'Log your day' }} />
         <Stack.Screen name="settings" options={{ title: 'Settings' }} />
+        <Stack.Screen name="coupons" options={{ title: 'Love coupons' }} />
+        <Stack.Screen name="moment/[id]" options={{ headerShown: false, presentation: 'fullScreenModal', animation: 'fade' }} />
       </Stack>
     </>
   );

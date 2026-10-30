@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import type { State } from '../store';
-import { applyRecords, fingerprint, outgoingRecords, pendingChanges, type PulledRecord } from '../syncCore.ts';
+import { applyRecords, backupOf, fingerprint, outgoingRecords, pendingChanges, type PulledRecord } from '../syncCore.ts';
 
 const ME = 'me-id';
 const PARTNER = 'partner-id';
@@ -28,6 +28,7 @@ function baseState(): State {
     notes: [{ id: 'n1', text: 'Love you', from: 'me', createdAt: '2026-10-12T09:00:00Z' }],
     moods: { me: { emoji: '🥰', label: 'Loved', at: '2026-10-13T08:00:00Z' } },
     dateIdeas: [{ id: 'd1', text: 'Picnic', done: false }],
+    coupons: [],
     sync: { serverUrl: 'http://x', token: 't', memberId: ME, pairCode: null, cursor: 0, pushed: {} },
   };
 }
@@ -115,5 +116,54 @@ describe('applying partner records', () => {
   it('keeps our anniversary when the partner has none', () => {
     const s = applyRecords(baseState(), [rec('couple', 'settings', { togetherSince: null })]);
     assert.equal(s.togetherSince, '2025-02-14');
+  });
+});
+
+describe('love coupons', () => {
+  const gift = { emoji: '🍳', text: 'Breakfast in bed', giver: PARTNER, createdAt: '2026-10-30T10:00:00Z', redeemedAt: null };
+
+  it('arrive from the partner and are not echoed back', () => {
+    const s = applyRecords(baseState(), [{ kind: 'coupon', id: 'c1', data: gift, author: PARTNER, seq: 1 }]);
+    assert.equal(s.coupons[0].from, 'partner');
+    assert.equal(s.coupons[0].redeemedAt, undefined);
+    assert.ok(!pendingChanges(s, '2026-10-13').some((c) => c.kind === 'coupon'));
+  });
+
+  it('go back to the giver once redeemed', () => {
+    const s = applyRecords(baseState(), [{ kind: 'coupon', id: 'c1', data: gift, author: PARTNER, seq: 1 }]);
+    s.coupons = s.coupons.map((c) => ({ ...c, redeemedAt: '2026-10-30T12:00:00Z' }));
+    const change = pendingChanges(s, '2026-10-13').find((c) => c.kind === 'coupon');
+    assert.deepEqual(change?.data, { ...gift, redeemedAt: '2026-10-30T12:00:00Z' });
+  });
+});
+
+describe('restoring on a new phone', () => {
+  it('takes back my own records without sending them again', () => {
+    const fresh = { ...baseState(), names: { me: 'Alex', partner: 'Sam' }, moments: [], notes: [], answers: {}, moods: {}, dateIdeas: [] };
+    const mine = (kind: string, id: string, data: unknown): PulledRecord => ({ kind, id, data, author: ME, seq: 1 });
+    const s = applyRecords(
+      fresh,
+      [
+        mine('note', 'n1', { text: 'Love you', createdAt: '2026-10-12T09:00:00Z' }),
+        mine('moment', 'm1', { photoId: 'p1', caption: 'hi', createdAt: '2026-10-10T10:00:00Z' }),
+        mine('answer', `${ME}:2026-10-13`, { date: '2026-10-13', text: 'Voice notes' }),
+        mine('mood', ME, { emoji: '🥰', label: 'Loved', at: '2026-10-13T08:00:00Z' }),
+      ],
+      { m1: 'file:///new-phone/m1.jpg' },
+      true,
+    );
+    assert.equal(s.notes[0].from, 'me');
+    assert.equal(s.moments[0].from, 'me');
+    assert.equal(s.moments[0].uri, 'file:///new-phone/m1.jpg');
+    assert.equal(s.answers['2026-10-13'].me, 'Voice notes');
+    assert.equal(s.moods.me?.label, 'Loved');
+    const resent = pendingChanges(s, '2026-10-13').map((c) => c.kind);
+    assert.ok(!resent.some((k) => ['note', 'moment', 'answer', 'mood'].includes(k)), `resent ${resent}`);
+  });
+
+  it('backs up only what never leaves the phone otherwise', () => {
+    const backup = backupOf(baseState());
+    assert.deepEqual(Object.keys(backup).sort(), ['appearance', 'cycle', 'names', 'togetherSince']);
+    assert.equal(backup.cycle.logs['2026-10-02'].note, 'private');
   });
 });
