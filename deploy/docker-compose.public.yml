@@ -1,0 +1,25 @@
+# Adds Caddy in front of the sync server so phones reach it at https://$DOMAIN.
+# Run from the repo root:
+#   docker compose -f docker-compose.yml -f deploy/docker-compose.public.yml up -d --build
+# The sync server itself still only listens on 127.0.0.1; Caddy reaches it over Docker's network.
+services:
+  caddy:
+    image: caddy:2
+    container_name: pure-love-caddy
+    restart: unless-stopped
+    depends_on:
+      - pure-love-server
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      - DOMAIN=${DOMAIN:?Set DOMAIN in .env, like youandi.duckdns.org}
+    volumes:
+      - ./deploy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  caddy-data:
+  caddy-config:

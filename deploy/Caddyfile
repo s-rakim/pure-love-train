@@ -1,0 +1,5 @@
+# Serves the sync server at https://$DOMAIN. Caddy gets and renews the certificate by itself.
+{$DOMAIN} {
+	encode gzip
+	reverse_proxy pure-love-server:8787
+}
