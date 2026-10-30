@@ -27,6 +27,16 @@ jobs:
           eas-version: latest
           token: ${{ secrets.EXPO_TOKEN }}
 
+      - name: Make sure the release tag is new
+        # Publishing onto an existing tag would attach this APK to someone else's code.
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          if git ls-remote --exit-code --tags origin "refs/tags/$VERSION" > /dev/null; then
+            echo "::error::Tag $VERSION already exists. Pick a new version."
+            exit 1
+          fi
+
       - run: npm ci
 
       - name: Link the expo.dev project
