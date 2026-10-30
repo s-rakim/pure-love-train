@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import type { State } from '../store';
-import { applyRecords, backupOf, fingerprint, outgoingRecords, pendingChanges, type PulledRecord } from '../syncCore.ts';
+import { applyRecords, backupOf, fingerprint, isPrivateHttp, outgoingRecords, pendingChanges, type PulledRecord } from '../syncCore.ts';
 
 const ME = 'me-id';
 const PARTNER = 'partner-id';
@@ -276,5 +276,17 @@ describe('restoring on a new phone', () => {
     const backup = backupOf(baseState());
     assert.deepEqual(Object.keys(backup).sort(), ['appearance', 'cycle', 'font', 'names', 'togetherSince']);
     assert.equal(backup.cycle.logs['2026-10-02'].note, 'private');
+  });
+});
+
+describe('server addresses', () => {
+  it('only trusts plain http inside the tailnet', () => {
+    assert.equal(isPrivateHttp('http://100.101.102.103:8787'), true);
+    assert.equal(isPrivateHttp('http://my-server:8787'), true);
+    assert.equal(isPrivateHttp('http://my-server.tail1234.ts.net:8787'), true);
+    assert.equal(isPrivateHttp('https://example.com'), true, 'https is always fine');
+    assert.equal(isPrivateHttp('http://192.168.1.20:8787'), false);
+    assert.equal(isPrivateHttp('http://100.200.1.1:8787'), false);
+    assert.equal(isPrivateHttp('http://example.com:8787'), false);
   });
 });

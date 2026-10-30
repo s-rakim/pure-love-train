@@ -13,7 +13,7 @@ export function WidgetAgent() {
   stateRef.current = state;
 
   const latest = state.moments.find((m) => m.from === 'partner');
-  const key = JSON.stringify([latest?.id, latest?.uri, latest?.caption, state.names.partner, state.appearance, state.font]);
+  const key = JSON.stringify([latest?.id, latest?.uri, latest?.caption, state.names.partner, state.appearance, state.font, state.widgetPrivate]);
 
   useEffect(() => {
     if (Platform.OS !== 'android') return;

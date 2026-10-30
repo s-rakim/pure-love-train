@@ -15,6 +15,8 @@ type Props = {
   colors: Palette;
   /** Text in the phone's own font, or in DM Sans (bundled with the widget) to match the app. */
   font: FontPref;
+  /** Say a moment arrived without showing it. */
+  private?: boolean;
   width: number;
   height: number;
 };
@@ -26,17 +28,18 @@ const hex = (c: string) => c as ColorProp;
  * name and when. A video shows as a still frame. Tapping it opens that moment in the app
  * (where a video plays), or Moments while there's nothing yet.
  */
-export function MomentWidget({ moment, partnerName, colors, font, width, height }: Props) {
+export function MomentWidget({ moment, partnerName, colors, font, private: hidden, width, height }: Props) {
   const uri = moment ? `purelove://moment/${moment.id}` : 'purelove://moments';
   const open = { clickAction: 'OPEN_URI', clickActionData: { uri } } as const;
   const name = partnerName || 'your partner';
   const bold = font === 'classic' ? { fontFamily: 'DMSans_700Bold' } : { fontWeight: 'bold' as const };
 
-  if (!moment) {
+  if (!moment || hidden) {
+    const text = moment ? `New moment from ${name} · ${relativeTime(moment.createdAt)}` : `Waiting for a moment from ${name}`;
     return (
       <FlexWidget
         {...open}
-        accessibilityLabel={`Waiting for a moment from ${name}`}
+        accessibilityLabel={text}
         style={{
           height: 'match_parent',
           width: 'match_parent',
@@ -50,7 +53,7 @@ export function MomentWidget({ moment, partnerName, colors, font, width, height 
       >
         <TextWidget text="💌" style={{ fontSize: 30 }} allowFontScaling={false} />
         <TextWidget
-          text={`Waiting for a moment from ${name}`}
+          text={text}
           maxLines={3}
           style={{ fontSize: 13, ...bold, color: hex(colors.flameDeep), textAlign: 'center' }}
         />

@@ -21,7 +21,7 @@ before(async () => {
     const name = idToken.replace(/^google:/, '');
     return { subject: `sub-${name}`, email: `${name}@gmail.com` };
   };
-  server = createServer(createApp(openDb(join(dataDir, 'test.db')), dataDir, { googleClientId: 'web-client', verifyGoogle }));
+  server = createServer(createApp(openDb(join(dataDir, 'test.db')), dataDir, { googleClientId: 'web-client', verifyGoogle, signInAttempts: 1000, maxCouples: 1000 }));
   await new Promise<void>((resolve) => server.listen(0, resolve));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
@@ -212,5 +212,108 @@ describe('google sign-in and backups', () => {
     await call('/api/account/google/unlink', { method: 'POST', token: restored.token, json: {} });
     const again = await call('/api/account/google/restore', { method: 'POST', json: { idToken: 'google:alex' } });
     assert.equal(again.status, 404);
+  });
+});
+
+describe('cutting off phones and deleting data', () => {
+  async function pair() {
+    const a = (await call('/api/couples', { method: 'POST', json: { name: 'Ana' } })).body;
+    const b = (await call('/api/couples/join', { method: 'POST', json: { name: 'Ben', code: a.pairCode } })).body;
+    return { a, b };
+  }
+
+  it('signs a phone out, or every other phone', async () => {
+    const { a } = await pair();
+    assert.equal((await call('/api/logout', { method: 'POST', token: a.token, json: {} })).status, 200);
+    assert.equal((await call('/api/me', { token: a.token })).status, 401, 'a signed-out token stops working');
+
+    const alex = (await call('/api/account/google/restore', { method: 'POST', json: { idToken: 'google:carol' } })).status;
+    assert.equal(alex, 404);
+    const { b } = await pair();
+    await call('/api/account/google', { method: 'POST', token: b.token, json: { idToken: 'google:ben' } });
+    const second = (await call('/api/account/google/restore', { method: 'POST', json: { idToken: 'google:ben' } })).body;
+    const out = await call('/api/logout/others', { method: 'POST', token: second.token, json: {} });
+    assert.equal(out.body.signedOut, 1);
+    assert.equal((await call('/api/me', { token: b.token })).status, 401, 'the old phone is signed out');
+    assert.equal((await call('/api/me', { token: second.token })).status, 200);
+  });
+
+  it('deletes a moment’s photo when the moment is deleted', async () => {
+    const { a, b } = await pair();
+    const photo = (await call('/api/photos', { method: 'POST', token: a.token, headers: { 'content-type': 'image/jpeg' }, body: new Uint8Array([1, 2]) })).body;
+    const moment = { kind: 'moment', id: 'm1', data: { photoId: photo.photoId, caption: '', createdAt: '2026-10-30' } };
+    await call('/api/sync', { method: 'POST', token: a.token, json: { records: [moment] } });
+    assert.equal((await call(`/api/photos/${photo.photoId}`, { token: b.token })).status, 200);
+    await call('/api/sync', { method: 'POST', token: a.token, json: { records: [{ kind: 'moment', id: 'm1', deleted: true }] } });
+    assert.equal((await call(`/api/photos/${photo.photoId}`, { token: b.token })).status, 404);
+  });
+
+  it('removes everything of a member who leaves, and the space with the last one', async () => {
+    const { a, b } = await pair();
+    const photo = (await call('/api/photos', { method: 'POST', token: a.token, headers: { 'content-type': 'image/jpeg' }, body: new Uint8Array([1]) })).body;
+    await call('/api/sync', { method: 'POST', token: a.token, json: { records: [{ kind: 'note', id: 'n9', data: { text: 'bye' } }] } });
+    const cursor = (await call('/api/sync?since=0', { token: b.token })).body.cursor;
+
+    assert.equal((await call('/api/leave', { method: 'POST', token: a.token, json: {} })).status, 200);
+    assert.equal((await call('/api/me', { token: a.token })).status, 401);
+    const seen = (await call(`/api/sync?since=${cursor}`, { token: b.token })).body;
+    assert.deepEqual(seen.records.map((r: any) => [r.id, r.deleted]), [['n9', true]], 'the partner sees the notes go');
+    assert.equal(seen.partner, null);
+    assert.equal((await call(`/api/photos/${photo.photoId}`, { token: b.token })).status, 404);
+
+    assert.equal((await call('/api/leave', { method: 'POST', token: b.token, json: {} })).status, 200);
+    assert.equal((await call('/api/me', { token: b.token })).status, 401);
+  });
+
+  it('keeps records to their owner and letters to their writer', async () => {
+    const { a, b } = await pair();
+    const squat = await call('/api/sync', {
+      method: 'POST',
+      token: b.token,
+      json: { records: [{ kind: 'profile', id: a.memberId, data: { name: 'x' } }, { kind: 'answer', id: `${a.memberId}:2026-10-30`, data: {} }] },
+    });
+    assert.deepEqual(squat.body.results.map((r: any) => r.ok), [false, false]);
+
+    const letter = { when: 'Open when sad', text: 'Hug.', writer: a.memberId, createdAt: '2026-10-30', openedAt: null };
+    await call('/api/sync', { method: 'POST', token: a.token, json: { records: [{ kind: 'letter', id: 'l9', data: letter }] } });
+    const rewrite = await call('/api/sync', { method: 'POST', token: b.token, json: { records: [{ kind: 'letter', id: 'l9', data: { ...letter, text: 'Nope.' } }] } });
+    assert.equal(rewrite.body.results[0].ok, false, 'the reader cannot change the words');
+    const forged = await call('/api/sync', { method: 'POST', token: b.token, json: { records: [{ kind: 'letter', id: 'l10', data: letter }] } });
+    assert.equal(forged.body.results[0].ok, false, 'nobody writes a letter in the other’s name');
+  });
+});
+
+describe('limits', () => {
+  let small: Server;
+  let url: string;
+  let dir: string;
+  before(async () => {
+    dir = mkdtempSync(join(tmpdir(), 'pure-love-limits-'));
+    small = createServer(createApp(openDb(join(dir, 'test.db')), dir, { maxCouples: 2, storageLimitBytes: 10 }));
+    await new Promise<void>((resolve) => small.listen(0, resolve));
+    url = `http://127.0.0.1:${(small.address() as AddressInfo).port}`;
+  });
+  after(() => {
+    small.close();
+    rmSync(dir, { recursive: true, force: true });
+  });
+  const post = (path: string, body: unknown, headers: Record<string, string> = { 'content-type': 'application/json' }) =>
+    fetch(url + path, { method: 'POST', headers, body: (body instanceof Uint8Array ? body : JSON.stringify(body)) as BodyInit });
+
+  it('caps the number of spaces and the room each one has', async () => {
+    const first = await (await post('/api/couples', { name: 'A' })).json();
+    assert.equal((await post('/api/couples', { name: 'B' })).status, 201);
+    assert.equal((await post('/api/couples', { name: 'C' })).status, 403);
+    const bytes = new Uint8Array(20);
+    const big = await post('/api/photos', bytes, { authorization: `Bearer ${first.token}`, 'content-type': 'image/jpeg' });
+    assert.equal(big.status, 507);
+  });
+
+  it('stops guessing pairing codes', async () => {
+    let status = 0;
+    for (let i = 0; i < 15 && status !== 429; i++) {
+      status = (await post('/api/couples/join', { name: 'Eve', code: 'AAAAAA' })).status;
+    }
+    assert.equal(status, 429);
   });
 });

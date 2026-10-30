@@ -1,4 +1,6 @@
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import * as SecureStore from 'expo-secure-store';
+import { Platform } from 'react-native';
 import {
   createContext,
   useCallback,
@@ -139,6 +141,8 @@ export type State = {
   appearance?: AppearancePref;
   /** The phone's own font (the default) or DM Sans. Stays on this phone too. */
   font?: FontPref;
+  /** Hide the photo on the home screen widget and just say a moment arrived. Stays on this phone. */
+  widgetPrivate?: boolean;
   account?: Account;
 };
 
@@ -168,17 +172,32 @@ export function initialState(): State {
   };
 }
 
+const TOKEN_KEY = 'pure-love.sync-token';
+// The sign-in token lives in the phone's keystore rather than with everything else.
+// The web preview has no keystore, so there it stays in the saved state.
+const secureToken = Platform.OS !== 'web';
+
 /** Reads what was last saved on this phone, filling in anything newer versions added. */
 export async function loadSavedState(): Promise<State | null> {
   const raw = await AsyncStorage.getItem(STORAGE_KEY);
   if (!raw) return null;
   const saved = JSON.parse(raw) as Partial<State>;
   const base = initialState();
-  return { ...base, ...saved, cycle: { ...base.cycle, ...saved.cycle } };
+  const state = { ...base, ...saved, cycle: { ...base.cycle, ...saved.cycle } };
+  if (secureToken && state.sync) {
+    // Older versions saved the token with the rest; it moves on the next save.
+    const token = state.sync.token || (await SecureStore.getItemAsync(TOKEN_KEY)) || '';
+    state.sync = { ...state.sync, token };
+  }
+  return state;
 }
 
-export function saveState(state: State): Promise<void> {
-  return AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+export async function saveState(state: State): Promise<void> {
+  if (!secureToken) return AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+  if (state.sync?.token) await SecureStore.setItemAsync(TOKEN_KEY, state.sync.token);
+  else await SecureStore.deleteItemAsync(TOKEN_KEY);
+  const toSave = state.sync ? { ...state, sync: { ...state.sync, token: '' } } : state;
+  await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
 }
 
 type Store = {

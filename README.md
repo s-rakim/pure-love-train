@@ -35,23 +35,31 @@ Each phone keeps everything locally and syncs through a small server you run you
 git clone https://github.com/s-rakim/pure-love-train && cd pure-love-train
 docker compose up -d
 curl http://localhost:8787/health   # {"ok":true}
+tailscale serve --bg 8787           # shares it on your tailnet at https://<machine>.<tailnet>.ts.net
 ```
+
+The server only listens on the machine itself, so nothing on your home Wi-Fi or the internet can reach it; `tailscale serve` passes it on to your tailnet over HTTPS. If you'd rather keep a plain `http://` Tailscale address, put `BIND_ADDRESS=<the machine's Tailscale IP>` (from `tailscale ip -4`) in a `.env` file next to `docker-compose.yml` and run `docker compose up -d` again. Don't set it to `0.0.0.0`. If other people or devices share your tailnet, add a [Tailscale ACL](https://tailscale.com/kb/1018/acls) so only your two phones can reach the server.
+
+The server holds up to 10 spaces with 5 GB of photos and videos each. Change that with `MAX_SPACES` and `STORAGE_LIMIT_GB` in the same `.env` file.
 
 Data lives in the `pure-love-data` Docker volume (the database plus photos). Back it up with
 `docker run --rm -v pure-love-train_pure-love-data:/data -v "$PWD":/backup alpine tar czf /backup/pure-love-backup.tgz /data`.
+It isn't encrypted on disk, so turn on your computer's disk encryption (BitLocker, FileVault or LUKS) and keep any backup copies somewhere only you can open.
 
 **2. Pair the phones.** Both phones need Tailscale on, signed in to the same tailnet.
 
-- On the first phone, open **Settings → Sync**, enter the machine's Tailscale address with the port (for example `http://100.101.102.103:8787` or `http://my-server:8787` with MagicDNS) and tap **Create our space**.
-- A six-letter code appears. On the second phone, enter the same address and the code, then tap **Join**.
+- On the first phone, open **Settings → Sync**, enter the server's address (for example `https://my-server.tail1234.ts.net`, or `http://100.101.102.103:8787` if you set `BIND_ADDRESS`) and tap **Create our space**.
+- A six-letter code appears. On the second phone, enter the same address and the code, then tap **Join**. A code that isn't used within a day is replaced by a new one.
 
 From then on the app syncs on open, every 15 seconds while it's open, and shortly after each change.
 
-What syncs: names, moods, daily answers, love notes, moment photos and videos, This or that picks, Open when… letters, date ideas, love coupons, the next date and the anniversary date. For the cycle, only the period dates and predictions are shared, and only while **Share with (partner)** is on in the Cycle tab; logs, symptoms and notes never leave the phone. Each partner can only change their own entries.
+What syncs: names, moods, daily answers, love notes, moment photos and videos, This or that picks, Open when… letters, date ideas, love coupons, the next date and the anniversary date. For the cycle, only the period dates and predictions are shared, and only while **Share with (partner)** is on in the Cycle tab; logs, symptoms and notes stay on the phone (and in your own private backup if you sign in with Google). Each partner can only change their own entries, and only the writer of a letter or coupon can change its words.
 
-The app talks plain HTTP, which is fine inside a tailnet since Tailscale encrypts the traffic. If you'd rather use HTTPS, run `tailscale serve --bg 8787` on the server and use the `https://<machine>.<tailnet>.ts.net` address instead.
+Plain `http://` is fine inside a tailnet since Tailscale encrypts the traffic; the app warns you if you enter an `http://` address outside it.
 
-**Updating the server.** When a new version of the app needs a newer server (1.5.0 does, for videos, This or that and letters), update it on the server machine with `git pull && docker compose up -d --build`. Your data stays in the volume. Until then the app keeps those changes and sends them once the server is updated.
+**Signing out and deleting.** **Disconnect** signs this phone out on the server. **Sign out my other phones** cuts off any other phone signed in as you, like a lost one. **Erase all data** also deletes everything you shared from the server: your moments (with their photos and videos), notes, answers, your Google link and your backup. Deleting a moment deletes its photo or video from the server too, and phones that haven't synced for 180 days are signed out.
+
+**Updating the server.** When a new version of the app needs a newer server (1.5.0 does, for videos, This or that and letters; the security update after it does, for signing out and deleting), update it on the server machine with `git pull && docker compose up -d --build`. Your data stays in the volume. Until then the app keeps those changes and sends them once the server is updated.
 
 To run the server without Docker: `cd server && node src/index.ts` (Node 22.18 or newer; set `PORT` and `DATA_DIR` if you like). Server tests: `cd server && npm test`.
 
@@ -59,7 +67,7 @@ Without a server you can still preview the shared features with **Settings → P
 
 ### The home screen widget (Android)
 
-Long-press the home screen, tap **Widgets** and pick **You&I💞**, or use **Add the widget to your home screen** in the Moments tab. It shows your partner's newest moment, or a still frame from it if it's a video. It updates as soon as the app syncs, and every 30 minutes or so it checks the server by itself, so a new moment turns up even if you don't open the app. Tapping it opens that moment in the app, where a video plays.
+Long-press the home screen, tap **Widgets** and pick **You&I💞**, or use **Add the widget to your home screen** in the Moments tab. It shows your partner's newest moment, or a still frame from it if it's a video. It updates as soon as the app syncs, and every 30 minutes or so it checks the server by itself, so a new moment turns up even if you don't open the app. Tapping it opens that moment in the app, where a video plays. To keep it private, pick **Settings → Widget → Keep it private**: the widget then only says a new moment arrived.
 
 ### Moving to a new phone (Sign in with Google)
 

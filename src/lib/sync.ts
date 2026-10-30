@@ -46,6 +46,22 @@ function linkedState(serverUrl: string, session: Session): SyncState {
   };
 }
 
+/** Signs this phone out on the server, so its token stops working. */
+export async function signOut(sync: SyncState) {
+  await request(sync, '/api/logout', { method: 'POST', body: '{}' });
+}
+
+/** Signs out every other phone that's signed in as you, such as a lost one. Returns how many. */
+export async function signOutOthers(sync: SyncState): Promise<number> {
+  const { signedOut } = await request<{ signedOut: number }>(sync, '/api/logout/others', { method: 'POST', body: '{}' });
+  return signedOut;
+}
+
+/** Deletes everything you put on the server (records, photos, videos, backup) and leaves the space. */
+export async function leaveSpace(sync: SyncState) {
+  await request(sync, '/api/leave', { method: 'POST', body: '{}' });
+}
+
 /** Starts a new shared space; the returned code is what the partner types in. */
 export async function createSpace(serverUrl: string, name: string, update: Update) {
   const session = await request<Session>({ serverUrl }, '/api/couples', {

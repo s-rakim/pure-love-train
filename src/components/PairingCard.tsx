@@ -5,7 +5,8 @@ import { withDemoPartner } from '../lib/demo';
 import { relativeTime } from '../lib/dates';
 import { useNames } from '../lib/hooks';
 import { useStore } from '../lib/store';
-import { createSpace, joinSpace, normalizeServerUrl, syncOnce } from '../lib/sync';
+import { createSpace, joinSpace, normalizeServerUrl, signOut, signOutOthers, syncOnce } from '../lib/sync';
+import { isPrivateHttp } from '../lib/syncCore';
 import { makeStyles, radius, space, useTheme } from '../theme';
 import { Body, Button, Card, Eyebrow, Field, Row } from './ui';
 
@@ -21,9 +22,20 @@ export function PairingCard() {
   const [error, setError] = useState<string | null>(null);
   const sync = state.sync;
 
-  const attempt = async (kind: 'create' | 'join', fn: (url: string) => Promise<void>) => {
+  const attempt = async (kind: 'create' | 'join', fn: (url: string) => Promise<void>, checked = false) => {
     const url = normalizeServerUrl(serverUrl);
     if (!url) return setError('Enter your server address first.');
+    // Plain http is only private inside the tailnet; anywhere else, check first.
+    if (!checked && !isPrivateHttp(url) && Platform.OS !== 'web') {
+      return Alert.alert(
+        "This address isn't private",
+        "It isn't a Tailscale address, so your photos and sign-in would travel unencrypted. Use the server's Tailscale address, or an https:// one.",
+        [
+          { text: 'Change it', style: 'cancel' },
+          { text: 'Use it anyway', style: 'destructive', onPress: () => attempt(kind, fn, true) },
+        ],
+      );
+    }
     setBusy(kind);
     setError(null);
     try {
@@ -50,7 +62,12 @@ export function PairingCard() {
   };
 
   const disconnect = () => {
-    const doIt = () => update((s) => ({ ...s, sync: undefined, partnerCycle: undefined }));
+    const doIt = () => {
+      // Sign this phone out on the server too, so the token stops working. Offline is fine: the
+      // phone forgets it anyway, and the server signs out phones it hasn't heard from in months.
+      if (sync) signOut(sync).catch(() => {});
+      update((s) => ({ ...s, sync: undefined, partnerCycle: undefined }));
+    };
     if (Platform.OS === 'web') return doIt();
     Alert.alert(
       'Disconnect from the server?',
@@ -58,6 +75,30 @@ export function PairingCard() {
       [
         { text: 'Cancel', style: 'cancel' },
         { text: 'Disconnect', style: 'destructive', onPress: doIt },
+      ],
+    );
+  };
+
+  const signOutOtherPhones = async () => {
+    if (!sync) return;
+    try {
+      const count = await signOutOthers(sync);
+      const message = count ? `Signed out ${count} other ${count === 1 ? 'phone' : 'phones'}.` : 'No other phones were signed in.';
+      if (Platform.OS === 'web') setError(message);
+      else Alert.alert('Done', message);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  };
+
+  const confirmSignOutOthers = () => {
+    if (Platform.OS === 'web') return signOutOtherPhones();
+    Alert.alert(
+      'Sign out your other phones?',
+      'Any other phone signed in as you, like an old or lost one, stops syncing straight away. This phone stays signed in.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Sign out', style: 'destructive', onPress: signOutOtherPhones },
       ],
     );
   };
@@ -129,6 +170,7 @@ export function PairingCard() {
         {sync.lastSyncAt ? ` · synced ${relativeTime(sync.lastSyncAt)}` : ''}
       </Body>
       {sync.error ? <Text style={styles.error}>{sync.error}</Text> : null}
+      {error ? <Text style={styles.error}>{error}</Text> : null}
       <Row>
         <Button
           label="Sync now"
@@ -140,6 +182,7 @@ export function PairingCard() {
         />
         <Button label="Disconnect" variant="ghost" onPress={disconnect} style={{ flex: 1 }} />
       </Row>
+      <Button label="Sign out my other phones" variant="ghost" onPress={confirmSignOutOthers} />
     </Card>
   );
 }

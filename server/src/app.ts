@@ -19,6 +19,18 @@ const PHOTO_TYPES = /^image\/(jpeg|png|webp|heic|heif|gif)$/;
 const VIDEO_TYPES = /^video\/(mp4|quicktime|3gpp|webm)$/;
 const MAX_RECORD_BYTES = 20_000;
 const PAGE_SIZE = 500;
+/** A pairing code that nobody has used for this long is swapped for a new one. */
+const PAIR_CODE_MS = 24 * 60 * 60_000;
+/** A phone that hasn't been heard from for this long has to sign in again. */
+const TOKEN_IDLE_MS = 180 * 24 * 60 * 60_000;
+/** Owned records whose id is the author's member id, and those whose id starts with it. */
+const ID_IS_MEMBER = new Set(['profile', 'mood', 'cycle']);
+const ID_STARTS_WITH_MEMBER = new Set(['answer', 'pick']);
+/** Shared records with a writer: the other partner may only change these fields. */
+const WRITER_FIELD: Record<string, { writer: string; partnerMay: string }> = {
+  coupon: { writer: 'giver', partnerMay: 'redeemedAt' },
+  letter: { writer: 'writer', partnerMay: 'openedAt' },
+};
 
 type Member = { id: string; couple_id: string; name: string };
 
@@ -28,6 +40,12 @@ export type GoogleIdentity = { subject: string; email: string };
 export type AppOptions = {
   /** The OAuth web client ID Google sign-in tokens must be issued for. */
   googleClientId?: string;
+  /** How many spaces this server will hold. */
+  maxCouples?: number;
+  /** How many bytes of photos and videos each space may keep. */
+  storageLimitBytes?: number;
+  /** Tries a minute from one address at creating, joining or restoring a space. */
+  signInAttempts?: number;
   /** Checks a Google ID token; swapped out in tests. */
   verifyGoogle?: (idToken: string, clientId: string) => Promise<GoogleIdentity>;
 };
@@ -75,6 +93,7 @@ function makePairCode(): string {
 
 // The app talks to the server from phones and, during development, from a browser.
 const CORS = {
+  'x-content-type-options': 'nosniff',
   'access-control-allow-origin': '*',
   'access-control-allow-headers': 'authorization, content-type, range',
   'access-control-allow-methods': 'GET, POST, OPTIONS',
@@ -129,6 +148,22 @@ async function readJson(req: IncomingMessage): Promise<any> {
   }
 }
 
+/** True when the latest write only changes `field` of what's already stored. */
+function onlyChanges(before: Record<string, unknown>, after: unknown, field: string): boolean {
+  if (!after || typeof after !== 'object') return false;
+  const next = after as Record<string, unknown>;
+  const keys = new Set([...Object.keys(before), ...Object.keys(next)]);
+  keys.delete(field);
+  return [...keys].every((k) => JSON.stringify(before[k] ?? null) === JSON.stringify(next[k] ?? null));
+}
+
+/** The photo and video ids a moment record points at. */
+function mediaOf(data: string | null): string[] {
+  if (!data) return [];
+  const parsed = JSON.parse(data) as { photoId?: unknown; videoId?: unknown } | null;
+  return [parsed?.photoId, parsed?.videoId].filter((id): id is string => typeof id === 'string');
+}
+
 function cleanName(value: unknown): string {
   const name = typeof value === 'string' ? value.trim().slice(0, 60) : '';
   if (!name) throw new HttpError(400, 'A name is required');
@@ -138,14 +173,24 @@ function cleanName(value: unknown): string {
 export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions = {}) {
   const googleClientId = options.googleClientId || null;
   const verifyGoogle = options.verifyGoogle ?? verifyGoogleIdToken;
+  const maxCouples = options.maxCouples ?? 10;
+  const storageLimit = options.storageLimitBytes ?? 5_000_000_000;
+  const signInAttempts = options.signInAttempts ?? 10;
   const photoDir = join(dataDir, 'photos');
   mkdirSync(photoDir, { recursive: true });
 
   const findMemberByToken = db.prepare(`
-    SELECT id, couple_id, name FROM members WHERE token_hash = ?1
-    UNION SELECT m.id, m.couple_id, m.name FROM member_tokens t JOIN members m ON m.id = t.member_id WHERE t.token_hash = ?1
+    SELECT m.id, m.couple_id, m.name, t.last_used_at FROM member_tokens t JOIN members m ON m.id = t.member_id
+    WHERE t.token_hash = ?
   `);
-  const insertToken = db.prepare('INSERT INTO member_tokens (token_hash, member_id, created_at) VALUES (?, ?, ?)');
+  const touchToken = db.prepare('UPDATE member_tokens SET last_used_at = ? WHERE token_hash = ?');
+  const deleteToken = db.prepare('DELETE FROM member_tokens WHERE token_hash = ?');
+  const deleteOtherTokens = db.prepare('DELETE FROM member_tokens WHERE member_id = ? AND token_hash != ?');
+  const deleteIdleTokens = db.prepare('DELETE FROM member_tokens WHERE coalesce(last_used_at, created_at) < ?');
+  const insertToken = db.prepare('INSERT INTO member_tokens (token_hash, member_id, created_at, last_used_at) VALUES (?, ?, ?, ?)');
+  const deleteMember = db.prepare('DELETE FROM members WHERE id = ?');
+  const deleteCouple = db.prepare('DELETE FROM couples WHERE id = ?');
+  const countCouples = db.prepare('SELECT COUNT(*) AS n FROM couples');
   const getMember = db.prepare('SELECT id, couple_id, name FROM members WHERE id = ?');
   const findAccount = db.prepare("SELECT member_id, email FROM accounts WHERE provider = 'google' AND subject = ?");
   const deleteAccountsOfMember = db.prepare('DELETE FROM accounts WHERE member_id = ?');
@@ -158,17 +203,19 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
     ON CONFLICT (member_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at
   `);
   const deleteBackup = db.prepare('DELETE FROM backups WHERE member_id = ?');
-  const insertCouple = db.prepare('INSERT INTO couples (id, pair_code, created_at) VALUES (?, ?, ?)');
+  const insertCouple = db.prepare('INSERT INTO couples (id, pair_code, created_at, pair_code_at) VALUES (?, ?, ?, ?)');
   const insertMember = db.prepare(
     'INSERT INTO members (id, couple_id, name, token_hash, created_at) VALUES (?, ?, ?, ?, ?)',
   );
-  const findCoupleByCode = db.prepare('SELECT id FROM couples WHERE pair_code = ?');
+  const findCoupleByCode = db.prepare('SELECT id, pair_code_at FROM couples WHERE pair_code = ?');
   const countMembers = db.prepare('SELECT COUNT(*) AS n FROM members WHERE couple_id = ?');
   const clearPairCode = db.prepare('UPDATE couples SET pair_code = NULL WHERE id = ?');
-  const getCouple = db.prepare('SELECT id, pair_code FROM couples WHERE id = ?');
+  const getCouple = db.prepare('SELECT id, pair_code, pair_code_at FROM couples WHERE id = ?');
+  const setPairCode = db.prepare('UPDATE couples SET pair_code = ?, pair_code_at = ? WHERE id = ?');
   const getPartner = db.prepare('SELECT id, name FROM members WHERE couple_id = ? AND id != ?');
   const bumpSeq = db.prepare('UPDATE couples SET seq = seq + 1 WHERE id = ? RETURNING seq');
-  const getRecord = db.prepare('SELECT author FROM records WHERE couple_id = ? AND kind = ? AND id = ?');
+  const getRecord = db.prepare('SELECT author, data FROM records WHERE couple_id = ? AND kind = ? AND id = ?');
+  const ownedRecordsOf = db.prepare('SELECT kind, id FROM records WHERE couple_id = ? AND author = ? AND deleted = 0');
   const upsertRecord = db.prepare(`
     INSERT INTO records (couple_id, kind, id, author, data, deleted, seq, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
@@ -182,25 +229,74 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
   const insertPhoto = db.prepare(
     'INSERT INTO photos (id, couple_id, member_id, mime, size, created_at) VALUES (?, ?, ?, ?, ?, ?)',
   );
-  const getPhoto = db.prepare('SELECT id, couple_id, mime, size FROM photos WHERE id = ?');
+  const getPhoto = db.prepare('SELECT id, couple_id, member_id, mime, size FROM photos WHERE id = ?');
+  const deletePhotoRow = db.prepare('DELETE FROM photos WHERE id = ?');
+  const photosOfMember = db.prepare('SELECT id FROM photos WHERE member_id = ?');
+  const photosOfCouple = db.prepare('SELECT id FROM photos WHERE couple_id = ?');
+  const storageUsed = db.prepare('SELECT coalesce(sum(size), 0) AS bytes FROM photos WHERE couple_id = ?');
+
+  // A few tries a minute is plenty for people; it stops anyone guessing pairing codes.
+  const attempts = new Map<string, { count: number; resetAt: number }>();
+  function limitAttempts(req: IncomingMessage) {
+    const key = req.socket.remoteAddress ?? 'unknown';
+    const nowMs = Date.now();
+    const entry = attempts.get(key);
+    if (!entry || entry.resetAt <= nowMs) {
+      if (attempts.size > 10_000) attempts.clear();
+      attempts.set(key, { count: 1, resetAt: nowMs + 60_000 });
+      return;
+    }
+    entry.count += 1;
+    if (entry.count > signInAttempts) throw new HttpError(429, 'Too many tries. Wait a minute and try again.');
+  }
+
+  function removeFile(id: string) {
+    deletePhotoRow.run(id);
+    rmSync(join(photoDir, id), { force: true });
+  }
+
+  function bearer(req: IncomingMessage): string {
+    const header = req.headers.authorization ?? '';
+    return header.startsWith('Bearer ') ? header.slice(7) : '';
+  }
 
   function authenticate(req: IncomingMessage): Member {
-    const header = req.headers.authorization ?? '';
-    const token = header.startsWith('Bearer ') ? header.slice(7) : '';
-    const member = token ? (findMemberByToken.get(hashToken(token)) as Member | undefined) : undefined;
-    if (!member) throw new HttpError(401, 'Not signed in');
-    return member;
+    const token = bearer(req);
+    const hash = token ? hashToken(token) : '';
+    const found = hash ? (findMemberByToken.get(hash) as (Member & { last_used_at: string | null }) | undefined) : undefined;
+    if (!found) throw new HttpError(401, 'Not signed in');
+    // Note the day each phone was last seen, so phones gone quiet for months can be signed out.
+    const stamp = now();
+    if (!found.last_used_at || found.last_used_at.slice(0, 10) !== stamp.slice(0, 10)) touchToken.run(stamp, hash);
+    return { id: found.id, couple_id: found.couple_id, name: found.name };
+  }
+
+  /** Signs in one more phone as this member and returns its token. */
+  function newToken(memberId: string): string {
+    const token = randomBytes(32).toString('hex');
+    insertToken.run(hashToken(token), memberId, now(), now());
+    return token;
   }
 
   function newMember(coupleId: string, name: string) {
-    const token = randomBytes(32).toString('hex');
     const id = randomUUID();
-    insertMember.run(id, coupleId, name, hashToken(token), now());
-    return { id, token };
+    insertMember.run(id, coupleId, name, `moved:${id}`, now());
+    return { id, token: newToken(id) };
+  }
+
+  function freshPairCode(): string {
+    let code = makePairCode();
+    while (findCoupleByCode.get(code)) code = makePairCode();
+    return code;
   }
 
   function describe(member: Member) {
-    const couple = getCouple.get(member.couple_id) as { id: string; pair_code: string | null };
+    const couple = getCouple.get(member.couple_id) as { id: string; pair_code: string | null; pair_code_at: string | null };
+    // An old code that nobody used is swapped for a new one, so it can't be guessed at forever.
+    if (couple.pair_code && Date.parse(couple.pair_code_at ?? '') < Date.now() - PAIR_CODE_MS) {
+      couple.pair_code = freshPairCode();
+      setPairCode.run(couple.pair_code, now(), couple.id);
+    }
     const partner = getPartner.get(member.couple_id, member.id) as { id: string; name: string } | undefined;
     return {
       coupleId: couple.id,
@@ -212,22 +308,26 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
 
   /** Starts a new space for two and returns the code the partner types in. */
   async function createCouple(req: IncomingMessage, res: ServerResponse) {
+    limitAttempts(req);
     const body = await readJson(req);
     const name = cleanName(body.name);
+    const { n: couples } = countCouples.get() as { n: number };
+    if (couples >= maxCouples) throw new HttpError(403, 'This server is full. Raise MAX_SPACES on the server to add more.');
     const coupleId = randomUUID();
-    let code = makePairCode();
-    while (findCoupleByCode.get(code)) code = makePairCode();
-    insertCouple.run(coupleId, code, now());
+    const code = freshPairCode();
+    insertCouple.run(coupleId, code, now(), now());
     const member = newMember(coupleId, name);
     send(res, 201, { token: member.token, coupleId, memberId: member.id, pairCode: code, partner: null });
   }
 
   async function joinCouple(req: IncomingMessage, res: ServerResponse) {
+    limitAttempts(req);
     const body = await readJson(req);
     const name = cleanName(body.name);
     const code = typeof body.code === 'string' ? body.code.trim().toUpperCase() : '';
-    const couple = code ? (findCoupleByCode.get(code) as { id: string } | undefined) : undefined;
-    if (!couple) throw new HttpError(404, 'That code was not found');
+    const couple = code ? (findCoupleByCode.get(code) as { id: string; pair_code_at: string | null } | undefined) : undefined;
+    const expired = couple && Date.parse(couple.pair_code_at ?? '') < Date.now() - PAIR_CODE_MS;
+    if (!couple || expired) throw new HttpError(404, 'That code was not found. Codes last a day; ask for the new one.');
     const { n } = countMembers.get(couple.id) as { n: number };
     if (n >= 2) throw new HttpError(409, 'This space already has two people');
     const member = newMember(couple.id, name);
@@ -267,12 +367,13 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
           results.push({ kind, id, ok: false, error: 'Unknown record' });
           continue;
         }
-        const existing = getRecord.get(member.couple_id, kind, id) as { author: string } | undefined;
-        if (existing && OWNED_KINDS.has(kind) && existing.author !== member.id) {
-          results.push({ kind, id, ok: false, error: 'Belongs to your partner' });
+        const existing = getRecord.get(member.couple_id, kind, id) as { author: string; data: string | null } | undefined;
+        const deleted = r.deleted === true;
+        const refusal = checkWrite(member, kind, id, existing, deleted, r.data);
+        if (refusal) {
+          results.push({ kind, id, ok: false, error: refusal });
           continue;
         }
-        const deleted = r.deleted === true;
         const data = deleted ? null : JSON.stringify(r.data ?? null);
         if (data && data.length > MAX_RECORD_BYTES) {
           results.push({ kind, id, ok: false, error: 'Record is too large' });
@@ -280,6 +381,11 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
         }
         const { seq } = bumpSeq.get(member.couple_id) as { seq: number };
         upsertRecord.run(member.couple_id, kind, id, member.id, data, deleted ? 1 : 0, seq, now());
+        // A deleted or changed moment no longer needs its old photo or video.
+        if (kind === 'moment' && existing) {
+          const kept = new Set(mediaOf(data));
+          for (const old of mediaOf(existing.data)) if (!kept.has(old)) removeOwnFile(member, old);
+        }
         results.push({ kind, id, ok: true, seq });
       }
       db.exec('COMMIT');
@@ -288,6 +394,82 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
       throw err;
     }
     send(res, 200, { results });
+  }
+
+  /** Why a write isn't allowed, or null when it is. */
+  function checkWrite(
+    member: Member,
+    kind: string,
+    id: string,
+    existing: { author: string; data: string | null } | undefined,
+    deleted: boolean,
+    data: unknown,
+  ): string | null {
+    if (OWNED_KINDS.has(kind)) {
+      if (existing && existing.author !== member.id) return 'Belongs to your partner';
+      if (ID_IS_MEMBER.has(kind) && id !== member.id) return 'Belongs to your partner';
+      if (ID_STARTS_WITH_MEMBER.has(kind) && !id.startsWith(`${member.id}:`)) return 'Belongs to your partner';
+      return null;
+    }
+    const rule = WRITER_FIELD[kind];
+    if (!rule || deleted) return null;
+    const writer = (data as Record<string, unknown> | null)?.[rule.writer];
+    const before = existing?.data ? (JSON.parse(existing.data) as Record<string, unknown>) : null;
+    // New ones are written by whoever sends them; after that the other partner only ticks them off.
+    if (!before) return writer === member.id ? null : 'Belongs to your partner';
+    if (before[rule.writer] === member.id) return writer === member.id ? null : 'Belongs to your partner';
+    return onlyChanges(before, data, rule.partnerMay) ? null : 'Belongs to your partner';
+  }
+
+  function removeOwnFile(member: Member, id: string) {
+    const photo = getPhoto.get(id) as { couple_id: string; member_id: string } | undefined;
+    if (photo && photo.couple_id === member.couple_id && photo.member_id === member.id) removeFile(id);
+  }
+
+  /** Signs this phone out: its token stops working straight away. */
+  function logout(req: IncomingMessage, res: ServerResponse) {
+    authenticate(req);
+    deleteToken.run(hashToken(bearer(req)));
+    send(res, 200, { ok: true });
+  }
+
+  /** Signs out every other phone of this member, such as a lost one. */
+  function logoutOthers(req: IncomingMessage, res: ServerResponse) {
+    const member = authenticate(req);
+    const { changes } = deleteOtherTokens.run(member.id, hashToken(bearer(req)));
+    send(res, 200, { ok: true, signedOut: Number(changes) });
+  }
+
+  /**
+   * Leaves the space for good: removes this member's own records (the partner's phone
+   * sees them go), their photos and videos, their Google link and backup, and every
+   * sign-in. The last one out takes the whole space with them.
+   */
+  function leave(req: IncomingMessage, res: ServerResponse) {
+    const member = authenticate(req);
+    const files: string[] = [];
+    db.exec('BEGIN');
+    try {
+      for (const r of ownedRecordsOf.all(member.couple_id, member.id) as { kind: string; id: string }[]) {
+        if (!OWNED_KINDS.has(r.kind)) continue;
+        const { seq } = bumpSeq.get(member.couple_id) as { seq: number };
+        upsertRecord.run(member.couple_id, r.kind, r.id, member.id, null, 1, seq, now());
+      }
+      for (const p of photosOfMember.all(member.id) as { id: string }[]) files.push(p.id);
+      deleteMember.run(member.id);
+      const { n } = countMembers.get(member.couple_id) as { n: number };
+      if (n === 0) {
+        for (const p of photosOfCouple.all(member.couple_id) as { id: string }[]) files.push(p.id);
+        deleteCouple.run(member.couple_id);
+      }
+      for (const id of files) deletePhotoRow.run(id);
+      db.exec('COMMIT');
+    } catch (err) {
+      db.exec('ROLLBACK');
+      throw err;
+    }
+    for (const id of files) rmSync(join(photoDir, id), { force: true });
+    send(res, 200, { ok: true });
   }
 
   async function googleIdentity(req: IncomingMessage): Promise<GoogleIdentity> {
@@ -320,14 +502,14 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
 
   /** On a new phone: signs back in as the linked member and hands back their backup. */
   async function restoreGoogle(req: IncomingMessage, res: ServerResponse) {
+    limitAttempts(req);
     const identity = await googleIdentity(req);
     const account = findAccount.get(identity.subject) as { member_id: string } | undefined;
     const member = account ? (getMember.get(account.member_id) as Member | undefined) : undefined;
     if (!member) {
       throw new HttpError(404, 'Nothing is linked to this Google account yet. Sign in with Google on your old phone first.');
     }
-    const token = randomBytes(32).toString('hex');
-    insertToken.run(hashToken(token), member.id, now());
+    const token = newToken(member.id);
     const backup = getBackup.get(member.id) as { data: string } | undefined;
     send(res, 200, {
       token,
@@ -359,6 +541,11 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
     const mime = String(req.headers['content-type'] ?? '').split(';')[0].trim();
     const limit = PHOTO_TYPES.test(mime) ? MAX_PHOTO_BYTES : VIDEO_TYPES.test(mime) ? MAX_VIDEO_BYTES : 0;
     if (!limit) throw new HttpError(415, 'Only photos and videos are accepted');
+    const { bytes } = storageUsed.get(member.couple_id) as { bytes: number };
+    const declared = Number(req.headers['content-length'] ?? 0);
+    if (bytes + declared > storageLimit) {
+      throw new HttpError(507, 'Your space is out of room on the server. Delete some old videos or raise STORAGE_LIMIT_GB.');
+    }
     const id = randomUUID();
     const path = join(photoDir, id);
     const size = await saveBody(req, path, limit);
@@ -398,6 +585,11 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
     createReadStream(path).pipe(res);
   }
 
+  // Phones that haven't synced for months are signed out; they can pair or restore again.
+  const sweepIdle = () => deleteIdleTokens.run(new Date(Date.now() - TOKEN_IDLE_MS).toISOString());
+  sweepIdle();
+  setInterval(sweepIdle, 24 * 60 * 60_000).unref();
+
   return async function handle(req: IncomingMessage, res: ServerResponse) {
     const url = new URL(req.url ?? '/', 'http://local');
     const route = `${req.method} ${url.pathname}`;
@@ -415,6 +607,9 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
       if (route === 'POST /api/account/google/restore') return await restoreGoogle(req, res);
       if (route === 'POST /api/account/google/unlink') return unlinkGoogle(req, res);
       if (route === 'POST /api/backup') return await saveBackup(req, res);
+      if (route === 'POST /api/logout') return logout(req, res);
+      if (route === 'POST /api/logout/others') return logoutOthers(req, res);
+      if (route === 'POST /api/leave') return leave(req, res);
       if (route === 'GET /api/sync') return getSync(req, res, url);
       if (route === 'POST /api/sync') return await postSync(req, res);
       if (route === 'POST /api/photos') return await uploadPhoto(req, res);

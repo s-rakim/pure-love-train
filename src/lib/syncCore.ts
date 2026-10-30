@@ -15,6 +15,21 @@ export type PulledRecord = SyncRecord & { author: string; seq: number };
 /** Kinds either partner may edit; everything else belongs to its author. */
 const SHARED = new Set(['dateIdea', 'couple', 'coupon', 'letter']);
 
+/**
+ * Whether plain http to this address stays private: a Tailscale address, a MagicDNS
+ * name, or this computer. Anywhere else, the token and photos would cross the network unencrypted.
+ */
+export function isPrivateHttp(serverUrl: string): boolean {
+  const match = /^http:\/\/([^/:?#]+|\[[^\]]+\])/i.exec(serverUrl.trim());
+  if (!match) return true;
+  const host = match[1].toLowerCase();
+  if (host === 'localhost' || host === '127.0.0.1' || host === '[::1]') return true;
+  if (host.endsWith('.ts.net') || !host.includes('.')) return true;
+  const ip = /^(\d+)\.(\d+)\.\d+\.\d+$/.exec(host);
+  // Tailscale hands out 100.64.0.0/10.
+  return !!ip && Number(ip[1]) === 100 && Number(ip[2]) >= 64 && Number(ip[2]) <= 127;
+}
+
 export const recordKey = (r: { kind: string; id: string }) => `${r.kind}:${r.id}`;
 export const fingerprint = (data: unknown) => JSON.stringify(data ?? null);
 

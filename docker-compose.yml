@@ -4,10 +4,16 @@ services:
     container_name: pure-love-server
     restart: unless-stopped
     ports:
-      - "8787:8787"
+      # Only this machine can reach the server; share it on your tailnet with `tailscale serve`.
+      # To reach it at the machine's Tailscale address instead, set BIND_ADDRESS to that address
+      # (like 100.101.102.103) in a .env file next to this one. Never use 0.0.0.0.
+      - "${BIND_ADDRESS:-127.0.0.1}:8787:8787"
     environment:
       # For "Sign in with Google": the web client ID from Google Cloud. Put it in a .env file next to this one.
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      # How many spaces the server holds, and the room each gets for photos and videos.
+      - MAX_SPACES=${MAX_SPACES:-10}
+      - STORAGE_LIMIT_GB=${STORAGE_LIMIT_GB:-5}
     volumes:
       - pure-love-data:/data
 

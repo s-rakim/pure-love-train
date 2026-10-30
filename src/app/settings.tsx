@@ -9,6 +9,7 @@ import { PairingCard } from '../components/PairingCard';
 import { Body, Button, Card, Chip, Eyebrow, Field, Row, Screen, Wordmark } from '../components/ui';
 import { isValidKey } from '../lib/dates';
 import { useStore } from '../lib/store';
+import { leaveSpace } from '../lib/sync';
 import { type AppearancePref, type FontPref, makeStyles, radius, space, useTheme } from '../theme';
 
 const APPEARANCES: { value: AppearancePref; label: string }[] = [
@@ -48,12 +49,31 @@ export default function Settings() {
   };
 
   const confirmReset = () => {
-    const doReset = () => {
+    const sync = state.sync;
+    const eraseHere = () => {
       reset();
       router.replace('/onboarding');
     };
+    // Also take everything you shared off the server: records, photos, videos and the backup.
+    const doReset = async () => {
+      if (!sync) return eraseHere();
+      try {
+        await leaveSpace(sync);
+        eraseHere();
+      } catch (err) {
+        const reason = err instanceof Error ? err.message : String(err);
+        if (Platform.OS === 'web') return eraseHere();
+        Alert.alert("Couldn't delete your data from the server", `${reason}\n\nErase this phone anyway? What you shared stays on the server.`, [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Erase this phone', style: 'destructive', onPress: eraseHere },
+        ]);
+      }
+    };
     if (Platform.OS === 'web') return doReset();
-    Alert.alert('Erase everything?', 'This removes all moments, answers and cycle logs from this phone.', [
+    const message = sync
+      ? `This removes all moments, answers and cycle logs from this phone, and deletes everything you shared from your sync server. ${state.names.partner || 'Your partner'} will no longer see your moments, notes or answers.`
+      : 'This removes all moments, answers and cycle logs from this phone.';
+    Alert.alert('Erase everything?', message, [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Erase', style: 'destructive', onPress: doReset },
     ]);
@@ -110,6 +130,26 @@ export default function Settings() {
         <Body muted style={{ fontSize: 13 }}>
           Your phone's font is whatever you've picked in your phone's settings, the same as on your home screen.
         </Body>
+        {Platform.OS === 'android' ? (
+          <>
+            <Eyebrow>Widget</Eyebrow>
+            <Row>
+              <Chip
+                label="Show the photo"
+                selected={!state.widgetPrivate}
+                onPress={() => update((s) => ({ ...s, widgetPrivate: false }))}
+              />
+              <Chip
+                label="Keep it private"
+                selected={!!state.widgetPrivate}
+                onPress={() => update((s) => ({ ...s, widgetPrivate: true }))}
+              />
+            </Row>
+            <Body muted style={{ fontSize: 13 }}>
+              Private hides the photo and caption on your home screen and just says a moment arrived.
+            </Body>
+          </>
+        ) : null}
       </Card>
 
       <Card>
