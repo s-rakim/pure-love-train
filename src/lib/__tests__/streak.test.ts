@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { activeDays, streakLength, weekStrip } from '../streak.ts';
+import { activeDays, dayProgress, streakLength, weekStrip } from '../streak.ts';
 
 describe('streak', () => {
   const days = new Set(['2026-10-10', '2026-10-11', '2026-10-12']);
@@ -19,13 +19,19 @@ describe('streak', () => {
     assert.equal(streakLength(days, '2026-10-14'), 0);
   });
 
-  it('counts answers, moments and notes from either of you', () => {
-    const d = activeDays({
-      answers: { '2026-10-01': { partner: 'hi' }, '2026-10-02': {} },
-      moments: [{ id: 'm', uri: 'x', caption: '', from: 'me', createdAt: new Date(2026, 9, 3, 9).toISOString() }],
-      notes: [{ id: 'n', text: 'x', from: 'partner', createdAt: new Date(2026, 9, 4, 22).toISOString() }],
+  it('counts a day only once you both answer, send a moment and share a mood', () => {
+    const at = (d: number, who: 'me' | 'partner') => ({
+      id: `${who}${d}`, uri: 'x', caption: '', from: who, createdAt: new Date(2026, 9, d, 12).toISOString(),
     });
-    assert.deepEqual([...d].sort(), ['2026-10-01', '2026-10-03', '2026-10-04']);
+    const input = {
+      answers: { '2026-10-01': { me: 'a', partner: 'b' }, '2026-10-02': { me: 'a', partner: 'b' }, '2026-10-03': { me: 'a' } },
+      moments: [at(1, 'me'), at(1, 'partner'), at(2, 'me'), at(2, 'partner'), at(3, 'me'), at(3, 'partner')],
+      moods: {},
+      moodDays: { me: ['2026-10-01', '2026-10-02', '2026-10-03'], partner: ['2026-10-01', '2026-10-03'] },
+    };
+    // Oct 2: no mood from the partner. Oct 3: the partner didn't answer.
+    assert.deepEqual([...activeDays(input)], ['2026-10-01']);
+    assert.deepEqual(dayProgress(input, '2026-10-02').partner, { answer: true, moment: true, mood: false });
   });
 
   it('lays out the week Monday first', () => {

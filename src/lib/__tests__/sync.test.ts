@@ -100,6 +100,7 @@ describe('applying partner records', () => {
     assert.equal(next.names.partner, 'Samantha');
     assert.equal(next.moods.partner?.label, 'Calm');
     assert.equal(next.moods.me?.label, 'Loved', 'my own records are ignored');
+    assert.deepEqual(next.moods.partner, { emoji: '😌', label: 'Calm', at: 'x' });
     assert.deepEqual(next.answers['2026-10-13'], { me: 'Voice notes', partner: 'Morning coffee' });
     assert.equal(next.notes[0].id, 'n9');
     assert.equal(next.notes[0].from, 'partner');
@@ -174,6 +175,18 @@ describe('love coupons', () => {
   });
 });
 
+describe('mood days for the streak', () => {
+  it('travel with the mood so a missed sync still counts the day', () => {
+    const s = baseState();
+    s.moodDays = { me: ['2026-10-12', '2026-10-13'] };
+    assert.deepEqual((outgoingRecords(s, '2026-10-13').get(`mood:${ME}`)?.data as any).days, ['2026-10-12', '2026-10-13']);
+
+    const data = { emoji: '😌', label: 'Calm', at: new Date(2026, 9, 13, 9).toISOString(), days: ['2026-10-11', '2026-10-12'] };
+    const next = applyRecords(s, [{ kind: 'mood', id: PARTNER, data, author: PARTNER, seq: 1 }]);
+    assert.deepEqual(next.moodDays?.partner, ['2026-10-11', '2026-10-12', '2026-10-13']);
+  });
+});
+
 describe('this or that', () => {
   it('sends only my side and fills in the partner\'s', () => {
     const s = baseState();
@@ -245,7 +258,7 @@ describe('restoring on a new phone', () => {
         mine('note', 'n1', { text: 'Love you', createdAt: '2026-10-12T09:00:00Z' }),
         mine('moment', 'm1', { photoId: 'p1', caption: 'hi', createdAt: '2026-10-10T10:00:00Z' }),
         mine('answer', `${ME}:2026-10-13`, { date: '2026-10-13', text: 'Voice notes' }),
-        mine('mood', ME, { emoji: '🥰', label: 'Loved', at: '2026-10-13T08:00:00Z' }),
+        mine('mood', ME, { emoji: '🥰', label: 'Loved', at: '2026-10-13T08:00:00Z', days: ['2026-10-13'] }),
       ],
       { m1: 'file:///new-phone/m1.jpg' },
       true,

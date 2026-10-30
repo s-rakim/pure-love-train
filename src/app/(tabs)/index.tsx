@@ -77,7 +77,14 @@ export default function Home() {
   ];
 
   const setMood = (emoji: string, label: string) => {
-    update((s) => ({ ...s, moods: { ...s.moods, me: { emoji, label, at: new Date().toISOString() } } }));
+    update((s) => {
+      const days = (s.moodDays?.me ?? []).filter((d) => d !== today);
+      return {
+        ...s,
+        moods: { ...s.moods, me: { emoji, label, at: new Date().toISOString() } },
+        moodDays: { ...s.moodDays, me: [...days, today].slice(-60) },
+      };
+    });
     setPickingMood(false);
   };
 
@@ -130,7 +137,9 @@ export default function Home() {
             <Body muted style={{ fontSize: 14, lineHeight: 19 }}>
               {streak.doneToday
                 ? `You and ${names.partner} showed up today.`
-                : `Do one thing together today to keep it burning.`}
+                : streak.meDone
+                  ? `Your three are done. Waiting on ${names.partner}.`
+                  : `Tick all three, both of you, to keep it burning.`}
             </Body>
           </View>
         </Row>

@@ -125,6 +125,8 @@ export type State = {
   answers: Record<DateKey, Partial<Record<Person, string>>>;
   notes: Note[];
   moods: Partial<Record<Person, Mood>>;
+  /** Days each of you shared a mood, newest last, for the streak. */
+  moodDays?: Partial<Record<Person, DateKey[]>>;
   dateIdeas: ListItem[];
   coupons: Coupon[];
   /** This or that: the side each of you chose, keyed by the pair's id. */

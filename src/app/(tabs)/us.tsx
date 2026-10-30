@@ -161,7 +161,7 @@ export default function Us() {
         <Body muted style={{ fontSize: 13, textAlign: 'center' }}>
           {streak.doneToday
             ? 'Today counts. See you tomorrow.'
-            : 'Answer the question, send a moment or leave a note to keep it going.'}
+            : 'It counts once you both answer the question, send a moment and share your mood.'}
         </Body>
       </Card>
 

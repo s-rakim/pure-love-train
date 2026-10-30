@@ -1,12 +1,26 @@
 import { addDays, fromKey, toKey, type DateKey } from './dates.ts';
-import type { State } from './store';
+import type { Person, State } from './store';
 
-/** Days where either of you showed up: answered the question, sent a moment or left a note. */
-export function activeDays(s: Pick<State, 'answers' | 'moments' | 'notes'>): Set<DateKey> {
+export type StreakInput = Pick<State, 'answers' | 'moments' | 'moods' | 'moodDays'>;
+
+/** What each of you has ticked off on a day: the question, a moment and a mood. */
+export function dayProgress(s: StreakInput, day: DateKey): Record<Person, { answer: boolean; moment: boolean; mood: boolean }> {
+  const side = (p: Person) => ({
+    answer: !!s.answers[day]?.[p],
+    moment: s.moments.some((m) => m.from === p && toKey(new Date(m.createdAt)) === day),
+    mood: !!s.moodDays?.[p]?.includes(day) || (!!s.moods[p] && toKey(new Date(s.moods[p]!.at)) === day),
+  });
+  return { me: side('me'), partner: side('partner') };
+}
+
+/** Days where both of you did all three: answered the question, sent a moment and shared a mood. */
+export function activeDays(s: StreakInput): Set<DateKey> {
   const days = new Set<DateKey>();
-  for (const [key, a] of Object.entries(s.answers)) if (a.me || a.partner) days.add(key);
-  for (const m of s.moments) days.add(toKey(new Date(m.createdAt)));
-  for (const n of s.notes) days.add(toKey(new Date(n.createdAt)));
+  for (const [key, a] of Object.entries(s.answers)) {
+    if (!a.me || !a.partner) continue;
+    const { me, partner } = dayProgress(s, key);
+    if (me.moment && me.mood && partner.moment && partner.mood) days.add(key);
+  }
   return days;
 }
 

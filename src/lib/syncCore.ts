@@ -26,7 +26,8 @@ export function outgoingRecords(s: State, today: DateKey = todayKey()): Map<stri
   const add = (kind: string, id: string, data: unknown) => out.set(recordKey({ kind, id }), { kind, id, data });
 
   if (s.names.me) add('profile', me, { name: s.names.me });
-  if (s.moods.me) add('mood', me, s.moods.me);
+  // The days carry the mood history the streak needs; the latest 60 are plenty.
+  if (s.moods.me) add('mood', me, { ...s.moods.me, days: (s.moodDays?.me ?? []).slice(-60) });
   for (const [date, answer] of Object.entries(s.answers)) {
     if (answer.me) add('answer', `${me}:${date}`, { date, text: answer.me });
   }
@@ -150,9 +151,11 @@ export function applyRecords(
         break;
       case 'mood': {
         const moods = { ...next.moods };
-        if (data) moods[side] = data;
+        if (data) moods[side] = { emoji: data.emoji, label: data.label, at: data.at };
         else delete moods[side];
-        next = { ...next, moods };
+        const days = new Set<DateKey>([...(next.moodDays?.[side] ?? []), ...(data?.days ?? [])]);
+        if (data?.at) days.add(todayKey(new Date(data.at)));
+        next = { ...next, moods, moodDays: { ...next.moodDays, [side]: [...days].sort().slice(-60) } };
         break;
       }
       case 'answer': {
