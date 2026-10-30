@@ -45,8 +45,8 @@ jobs:
         with:
           tag_name: ${{ inputs.version || github.ref_name }}
           target_commitish: ${{ github.sha }}
-          name: Pure Love ${{ inputs.version || github.ref_name }}
+          name: "You&I💞 ${{ inputs.version || github.ref_name }}"
           body: |
-            Android build of Pure Love. Download `pure-love.apk` on an Android phone and open it to install
+            Android build of You&I💞. Download `pure-love.apk` on an Android phone and open it to install
             (you may need to allow installs from your browser or file manager).
           files: pure-love.apk

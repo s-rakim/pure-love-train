@@ -52,8 +52,8 @@ jobs:
         with:
           tag_name: ${{ inputs.version }}
           target_commitish: ${{ github.sha }}
-          name: Pure Love ${{ inputs.version }}
+          name: "You&I💞 ${{ inputs.version }}"
           body: |
-            Android build of Pure Love, built on expo.dev. Download `pure-love.apk` on an Android phone and
+            Android build of You&I💞, built on expo.dev. Download `pure-love.apk` on an Android phone and
             open it to install (you may need to allow installs from your browser or file manager).
           files: pure-love.apk
