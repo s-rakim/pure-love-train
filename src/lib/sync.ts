@@ -143,6 +143,22 @@ async function uploadMedia(sync: SyncState, uri: string): Promise<string> {
   return JSON.parse(result.body).photoId;
 }
 
+/** True when a download failed because the file isn't in this space (deleted, or from an old space). */
+const isMissing = (err: unknown) => /\b404\b/.test(err instanceof Error ? err.message : String(err));
+
+/** Whether this space can see a photo or video: asks for its first byte only. */
+async function mediaExists(sync: SyncState, id: string): Promise<boolean | null> {
+  try {
+    const res = await fetch(`${sync.serverUrl}/api/photos/${id}`, {
+      headers: { authorization: `Bearer ${sync.token}`, range: 'bytes=0-0' },
+    });
+    if (res.status === 404) return false;
+    return res.ok ? true : null;
+  } catch {
+    return null; // Offline; ask again next time.
+  }
+}
+
 async function downloadPhoto(sync: SyncState, photoId: string, momentId: string): Promise<string> {
   const url = `${sync.serverUrl}/api/photos/${photoId}`;
   const headers = { authorization: `Bearer ${sync.token}` };
@@ -212,7 +228,13 @@ export async function pull(start: SyncState, update: Update) {
       const data = r.data as { photoId?: string } | null;
       const wanted = restoring || r.author !== start.memberId;
       if (r.kind === 'moment' && wanted && !r.deleted && data?.photoId) {
-        photoUris[r.id] = await downloadPhoto(start, data.photoId, r.id);
+        try {
+          photoUris[r.id] = await downloadPhoto(start, data.photoId, r.id);
+        } catch (err) {
+          // A photo that isn't on the server any more is skipped, so it can't hold up
+          // everything after it. Its moment arrives when it's sent again.
+          if (!isMissing(err)) throw err;
+        }
       }
     }
     cursor = page.cursor;
@@ -269,12 +291,21 @@ async function runSync(getState: () => State, update: Update) {
     // One that fails stays on this phone and is retried next round; it
     // shouldn't hold back everything else. A video waits a while first, so a
     // big file isn't sent again every few seconds.
-    const uploaded: Record<string, Pick<Moment, 'photoId' | 'videoId'>> = {};
+    const uploaded: Record<string, Pick<Moment, 'photoId' | 'videoId' | 'mediaFor'>> = {};
     let mediaError: string | undefined;
-    for (const m of getState().moments) {
-      if (m.from !== 'me') continue;
+    for (const original of getState().moments) {
+      if (original.from !== 'me' || !original.uri) continue;
+      let m = original;
+      // Files uploaded in an earlier space aren't visible in this one; send them again.
+      if (m.photoId && m.mediaFor !== start.memberId) {
+        const found = await mediaExists(start, m.photoId);
+        const videoFound = found && m.videoId ? await mediaExists(start, m.videoId) : found;
+        if (found === null || videoFound === null) continue;
+        m = found && videoFound ? m : { ...m, photoId: undefined, videoId: m.videoUri ? undefined : m.videoId };
+        uploaded[m.id] = { photoId: m.photoId, videoId: m.videoId, mediaFor: start.memberId };
+      }
       try {
-        if (!m.photoId) uploaded[m.id] = { photoId: await uploadMedia(start, m.uri) };
+        if (!m.photoId) uploaded[m.id] = { ...uploaded[m.id], photoId: await uploadMedia(start, m.uri), mediaFor: start.memberId };
         if (m.videoUri && !m.videoId && (videoRetryAt.get(m.id) ?? 0) <= Date.now()) {
           try {
             uploaded[m.id] = { ...uploaded[m.id], videoId: await uploadMedia(start, m.videoUri) };
@@ -323,7 +354,7 @@ async function runSync(getState: () => State, update: Update) {
         try {
           await downloadVideo(start, m, update);
         } catch (err) {
-          mediaError ??= `A video didn't download: ${err instanceof Error ? err.message : String(err)}`;
+          if (!isMissing(err)) mediaError ??= `A video didn't download: ${err instanceof Error ? err.message : String(err)}`;
         }
       }
     }

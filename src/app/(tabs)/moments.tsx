@@ -3,7 +3,7 @@ import { Image } from 'expo-image';
 import { router } from 'expo-router';
 import { useState } from 'react';
 import { useVideoPlayer, VideoView } from 'expo-video';
-import { Alert, Platform, Pressable, StyleSheet, Text, View, type StyleProp, type ViewStyle } from 'react-native';
+import { Alert, Platform, Pressable, StyleSheet, Text, useWindowDimensions, View, type StyleProp, type ViewStyle } from 'react-native';
 import { requestPinWidget } from 'react-native-android-widget';
 
 import { PlayBadge } from '../../components/MomentVideo';
@@ -29,6 +29,9 @@ export default function Moments() {
 
   const latestFromPartner = state.moments.find((m) => m.from === 'partner' && !m.viewOnce);
   const latestFromMe = state.moments.find((m) => m.from === 'me');
+  // Three tiles a row, sized in points: percentages with aspectRatio drew empty tiles on some Android phones.
+  const { width } = useWindowDimensions();
+  const tileSize = Math.floor((Math.min(width, 640) - space(5) * 2 - space(2) * 2) / 3);
 
   const capture = async (source: 'photo' | 'video' | 'library') => {
     try {
@@ -183,7 +186,7 @@ export default function Moments() {
                 else if (m.uri) router.push(`/once/${m.id}`);
               }}
               onLongPress={() => remove(m)}
-              style={styles.tile}
+              style={[styles.tile, { width: tileSize, height: tileSize }]}
             >
               {m.viewOnce && (m.from === 'partner' || !m.uri) ? (
                 // Your partner's stays hidden until it's opened; after that only this tile is left.
@@ -247,8 +250,6 @@ const useStyles = makeStyles((colors, fonts) => ({
   },
   grid: { flexDirection: 'row', flexWrap: 'wrap', gap: space(2) },
   tile: {
-    width: '31.8%',
-    aspectRatio: 1,
     borderRadius: radius.md,
     overflow: 'hidden',
     backgroundColor: colors.flameSoft,

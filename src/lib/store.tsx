@@ -47,6 +47,11 @@ export type Moment = {
   viewOnce?: boolean;
   /** When the partner opened a view-once moment. */
   openedAt?: string;
+  /**
+   * Your member id in the space the photo and video were uploaded to. After moving
+   * to a new space they're checked, and sent again if that space can't see them.
+   */
+  mediaFor?: string;
 };
 
 export const isVideo = (m: Pick<Moment, 'videoUri' | 'videoId'>) => !!(m.videoUri || m.videoId);
