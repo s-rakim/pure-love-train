@@ -192,6 +192,12 @@ export type SharedCycle = {
   fertileStart?: DateKey;
   fertileEnd?: DateKey;
   nextLatest?: DateKey;
+  /**
+   * Added in 1.6.1: the logged period dates (no notes or symptoms) and the usual lengths, so
+   * the partner's calendar is worked out exactly as it is on the sharer's own phone.
+   */
+  periods?: Period[];
+  settings?: CycleSettings;
 };
 
 export function sharedCycleOn(c: SharedCycle, today: DateKey) {
@@ -201,6 +207,62 @@ export function sharedCycleOn(c: SharedCycle, today: DateKey) {
     cycleDay: diffDays(c.periodStart, today) + 1,
     phase: phaseFor(today, { periodEnd: c.periodEnd, fertileStart, ovulation: c.ovulation, fertileEnd }),
     daysUntilNext: diffDays(today, c.nextPeriod),
+  };
+}
+
+/** Everything the partner's view draws: the day and phase, this cycle's dates and the calendar. */
+export type PartnerView = {
+  cycleDay: number;
+  cycleLength: number;
+  phase: Phase;
+  daysUntilNext: number;
+  periodStart: DateKey;
+  periodEnd: DateKey;
+  fertileStart: DateKey;
+  fertileEnd: DateKey;
+  ovulation: DateKey;
+  nextPeriod: DateKey;
+  nextLatest: DateKey;
+  map: Record<DateKey, DayKind>;
+};
+
+/**
+ * Your partner's cycle as you see it. When they share their logged periods it's worked out
+ * the same way as on their phone, so the calendar matches theirs day for day; older
+ * versions only send the summary, which still gives this cycle and the next few.
+ */
+export function partnerView(c: SharedCycle, today: DateKey): PartnerView {
+  if (c.periods?.length && c.settings) {
+    const p = predict(c.periods, c.settings, today);
+    if (p) return { ...p, map: calendarMap(c.periods, c.settings, today) };
+  }
+  const fertileStart = c.fertileStart ?? addDays(c.ovulation, -5);
+  const fertileEnd = c.fertileEnd ?? addDays(c.ovulation, 1);
+  const cycleLength = Math.max(diffDays(c.periodStart, c.nextPeriod), 1);
+  const periodLength = diffDays(c.periodStart, c.periodEnd) + 1;
+  const map: Record<DateKey, DayKind> = {};
+  for (let i = 0; i <= 3; i++) {
+    const shift = cycleLength * i;
+    const ovulation = addDays(c.ovulation, shift);
+    const from = i === 0 ? fertileStart : addDays(ovulation, -5);
+    const to = i === 0 ? fertileEnd : addDays(ovulation, 1);
+    for (let key = from; key <= to; key = addDays(key, 1)) map[key] = key === ovulation ? 'ovulation' : 'fertile';
+    for (let d = 0; d < periodLength; d++) {
+      const key = addDays(c.periodStart, shift + d);
+      map[key] = key > today ? 'predicted' : 'period';
+    }
+  }
+  return {
+    ...sharedCycleOn(c, today),
+    cycleLength,
+    periodStart: c.periodStart,
+    periodEnd: c.periodEnd,
+    fertileStart,
+    fertileEnd,
+    ovulation: c.ovulation,
+    nextPeriod: c.nextPeriod,
+    nextLatest: c.nextLatest ?? c.nextPeriod,
+    map,
   };
 }
 

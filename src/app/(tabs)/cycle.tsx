@@ -40,7 +40,7 @@ export default function Cycle() {
       <Body muted>Know what's coming, together.</Body>
     </View>
   );
-  const partnerCard = state.partnerCycle ? <PartnerCycleCard name={names.partner} cycle={state.partnerCycle} /> : null;
+  const partnerCard = state.partnerCycle ? <PartnerCycleCard name={names.partner} cycle={state.partnerCycle} calendar /> : null;
 
   // Without tracking your own, the tab is only here for what your partner shares.
   if (!state.cycle.tracking) {
@@ -190,7 +190,7 @@ export default function Cycle() {
         <Eyebrow color={colors.plum}>Sharing</Eyebrow>
         <Body style={{ color: colors.ink }}>
           {shareWithPartner
-            ? `${names.partner} sees your phase and next period, never your notes or symptoms.`
+            ? `${names.partner} sees your calendar, phase and next period, never your notes or symptoms.`
             : `Your cycle is private to you.`}
         </Body>
         <Row>

@@ -1,4 +1,4 @@
-import { predict } from './cycle.ts';
+import { normalize, predict } from './cycle.ts';
 import { todayKey, type DateKey } from './dates.ts';
 import type { Coupon, Letter, Moment, Note, PartnerCycle, Person, State } from './store';
 
@@ -78,6 +78,9 @@ export function outgoingRecords(s: State, today: DateKey = todayKey()): Map<stri
       fertileStart: prediction.fertileStart,
       fertileEnd: prediction.fertileEnd,
       nextLatest: prediction.nextLatest,
+      // Dates only, so their calendar can match yours; notes and symptoms stay on this phone.
+      periods: normalize(periods).map((p) => ({ start: p.start, end: p.end, ...(p.ended ? { ended: true } : {}) })),
+      settings: { cycleLength: settings.cycleLength, periodLength: settings.periodLength },
     };
     add('cycle', me, shared);
   }

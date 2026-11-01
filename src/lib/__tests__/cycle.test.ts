@@ -13,10 +13,12 @@ import {
   normalize,
   openPeriod,
   overlapsAnother,
+  partnerView,
   predict,
   removePeriodDay,
   stagesOf,
   startPeriod,
+  type Period,
 } from '../cycle.ts';
 import { addDays, diffDays, monthGrid } from '../dates.ts';
 
@@ -236,5 +238,39 @@ describe('confirming dates', () => {
         ['2026-08-02', 5, 28],
       ],
     );
+  });
+});
+
+describe('partnerView', () => {
+  const periods: Period[] = [
+    { start: '2026-09-03', end: '2026-09-07', ended: true },
+    { start: '2026-10-01', end: '2026-10-05', ended: true },
+  ];
+  const settings = { cycleLength: 28, periodLength: 5 };
+  const today = '2026-10-20';
+
+  it('matches the sharer’s own calendar when their periods are shared', () => {
+    const p = predict(periods, settings, today)!;
+    const shared = {
+      periodStart: p.periodStart, periodEnd: p.periodEnd, nextPeriod: p.nextPeriod, ovulation: p.ovulation,
+      fertileStart: p.fertileStart, fertileEnd: p.fertileEnd, nextLatest: p.nextLatest, periods, settings,
+    };
+    const view = partnerView(shared, today);
+    assert.deepEqual(view.map, calendarMap(periods, settings, today));
+    assert.equal(view.cycleDay, 20);
+    assert.equal(view.ovulation, p.ovulation);
+  });
+
+  it('draws this cycle and the next ones from a summary alone', () => {
+    const view = partnerView(
+      { periodStart: '2026-10-01', periodEnd: '2026-10-05', nextPeriod: '2026-10-29', ovulation: '2026-10-15' },
+      today,
+    );
+    assert.equal(view.cycleLength, 28);
+    assert.equal(view.map['2026-10-03'], 'period');
+    assert.equal(view.map['2026-10-15'], 'ovulation');
+    assert.equal(view.map['2026-10-12'], 'fertile');
+    assert.equal(view.map['2026-10-29'], 'predicted');
+    assert.equal(view.map['2026-11-12'], 'ovulation');
   });
 });

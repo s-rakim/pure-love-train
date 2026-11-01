@@ -50,7 +50,7 @@ describe('outgoing records', () => {
     ]);
     const cycle = out.get('cycle:me-id')!.data as Record<string, string>;
     assert.deepEqual(Object.keys(cycle).sort(), [
-      'fertileEnd', 'fertileStart', 'nextLatest', 'nextPeriod', 'ovulation', 'periodEnd', 'periodStart',
+      'fertileEnd', 'fertileStart', 'nextLatest', 'nextPeriod', 'ovulation', 'periodEnd', 'periodStart', 'periods', 'settings',
     ]);
     assert.ok(!JSON.stringify([...out.values()]).includes('private'));
   });

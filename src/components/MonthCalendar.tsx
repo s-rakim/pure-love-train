@@ -23,7 +23,8 @@ export function MonthCalendar({
   today: DateKey;
   selected?: DateKey;
   logged?: Record<DateKey, unknown>;
-  onSelect: (key: DateKey) => void;
+  /** Leave out for a view-only calendar, such as your partner's. */
+  onSelect?: (key: DateKey) => void;
   /** Days before this one are greyed out and can't be picked. */
   minDate?: DateKey;
   /** Days after this one are greyed out and can't be picked. */
@@ -69,13 +70,13 @@ export function MonthCalendar({
           return (
             <Pressable
               key={key}
-              accessibilityRole="button"
+              accessibilityRole={onSelect ? 'button' : undefined}
               accessibilityLabel={`${key}${kind ? `, ${kind}` : ''}`}
               accessibilityState={{ disabled, selected: isSelected }}
-              disabled={disabled}
+              disabled={disabled || !onSelect}
               onPress={() => {
                 tap();
-                onSelect(key);
+                onSelect?.(key);
               }}
               style={[styles.cell, disabled && { opacity: 0.3 }]}
             >
