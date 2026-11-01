@@ -5,10 +5,11 @@ import { Pressable, Text, View } from 'react-native';
 
 import { Flame } from '../../components/Flame';
 import { NextDateSheet } from '../../components/NextDateSheet';
+import { PartnerCycleCard } from '../../components/PartnerCycleCard';
 import { PhotoWidget } from '../../components/PhotoWidget';
-import { Body, Card, Chip, Eyebrow, Heading, Row, Screen, SectionTitle, Sheet, Title, tap } from '../../components/ui';
+import { Body, Card, Chip, Eyebrow, Row, Screen, SectionTitle, Sheet, Title, tap } from '../../components/ui';
 import { celebrationsFor } from '../../lib/celebrate';
-import { phaseCopy, sharedCycleOn } from '../../lib/cycle';
+import { phaseCopy } from '../../lib/cycle';
 import { diffDays, relativeTime, shortDate, toKey } from '../../lib/dates';
 import { useCycle, useDaysTogether, useNames, useStreak, useToday } from '../../lib/hooks';
 import { THIS_OR_THAT } from '../../lib/questions';
@@ -232,7 +233,7 @@ export default function Home() {
         </Card>
       </Row>
 
-      {state.partnerCycle ? <PartnerCycleCard name={names.partner} /> : null}
+      {state.partnerCycle ? <PartnerCycleCard name={names.partner} cycle={state.partnerCycle} /> : null}
 
       <SectionTitle>Activities</SectionTitle>
       <View style={styles.grid}>
@@ -381,32 +382,6 @@ function ActivityTile({
       <Text style={styles.tileTitle} numberOfLines={2}>{title}</Text>
       <Text style={styles.tileSubtitle} numberOfLines={2}>{subtitle}</Text>
     </Pressable>
-  );
-}
-
-function PartnerCycleCard({ name }: { name: string }) {
-  const { colors } = useTheme();
-  const { state } = useStore();
-  const today = useToday();
-  const c = state.partnerCycle!;
-  const { cycleDay, phase, daysUntilNext: daysUntil } = sharedCycleOn(c, today);
-  return (
-    <Card tone="plum">
-      <Eyebrow color={colors.plum}>{name}'s cycle</Eyebrow>
-      <Heading style={{ fontSize: 19 }}>
-        Day {cycleDay} · {phaseCopy[phase].title}
-      </Heading>
-      <Body style={{ fontSize: 14 }}>
-        {daysUntil > 0
-          ? `Period expected in ${daysUntil} day${daysUntil === 1 ? '' : 's'} (${shortDate(c.nextPeriod)}${
-              c.nextLatest && c.nextLatest !== c.nextPeriod ? `, or as late as ${shortDate(c.nextLatest)}` : ''
-            }).`
-          : daysUntil === 0
-            ? 'Period expected today.'
-            : `Period was expected ${shortDate(c.nextPeriod)}.`}{' '}
-        {phaseCopy[phase].body}
-      </Body>
-    </Card>
   );
 }
 

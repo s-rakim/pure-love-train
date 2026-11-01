@@ -54,7 +54,8 @@ export default function TabsLayout() {
       <Tabs.Screen name="moments" options={tab('Moments', 'camera-outline', 'camera')} />
       <Tabs.Screen
         name="cycle"
-        options={{ ...tab('Cycle', 'water-outline', 'water'), href: state.cycle.tracking ? undefined : null }}
+        // Shown when you track your own cycle, or your partner shares theirs.
+        options={{ ...tab('Cycle', 'water-outline', 'water'), href: state.cycle.tracking || state.partnerCycle ? undefined : null }}
       />
       <Tabs.Screen name="us" options={tab('Us', 'heart-outline', 'heart')} />
     </Tabs>

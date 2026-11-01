@@ -132,6 +132,7 @@ To add a new kind you must add it in three places: `OWNED_KINDS` or `SHARED_KIND
 | Sync worked, then stopped after an update | Rebuild the server: `git pull && docker compose up -d --build`. A stale server image once showed up as a fake CORS error. |
 | The question is the same old one, or Fresh ideas don't show | The server is older than 1.6. Rebuild it. |
 | Notifications never come | Android Settings → Apps → You&I💞 → Notifications are allowed, and Battery is set to "Unrestricted". Some phones (Xiaomi, Samsung, Huawei) kill background apps; look up "dontkillmyapp" for your phone. |
+| Your partner's cycle doesn't show | It shows on Home and the Cycle tab once their phone shares it. On their phone: **Settings → Track my cycle** is on, **Cycle → Sharing → Share with …** is picked, and at least one period is logged. |
 | Widget is blank or old | Remove it and add it again. Open the app once so it can draw. |
 | "Check for updates" says it couldn't check | The phone needs internet (not just Tailscale). The update comes from expo.dev. |
 | An over-the-air update made the app crash on start | Fix the bug and send another update, or go back: on expo.dev → **Updates**, republish the previous update to the `production` channel. As a last resort, reinstall the APK from the GitHub release. |

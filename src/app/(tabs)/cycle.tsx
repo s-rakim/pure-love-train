@@ -4,6 +4,7 @@ import { useState } from 'react';
 import { Pressable, Text, View } from 'react-native';
 
 import { MonthCalendar } from '../../components/MonthCalendar';
+import { PartnerCycleCard } from '../../components/PartnerCycleCard';
 import { PeriodSheet, type PeriodEdit } from '../../components/PeriodSheet';
 import { Body, Button, Card, Chip, Eyebrow, Heading, Row, Screen, Title } from '../../components/ui';
 import {
@@ -33,12 +34,31 @@ export default function Cycle() {
   const [sheet, setSheet] = useState<PeriodEdit | null>(null);
   const history = cycleHistory(periods, today).slice(0, 12);
 
+  const header = (
+    <View style={{ gap: space(1) }}>
+      <Title>Cycle</Title>
+      <Body muted>Know what's coming, together.</Body>
+    </View>
+  );
+  const partnerCard = state.partnerCycle ? <PartnerCycleCard name={names.partner} cycle={state.partnerCycle} /> : null;
+
+  // Without tracking your own, the tab is only here for what your partner shares.
+  if (!state.cycle.tracking) {
+    return (
+      <Screen>
+        {header}
+        {partnerCard}
+        <Body muted style={{ fontSize: 13, textAlign: 'center' }}>
+          To track your own cycle too, turn it on in Settings.
+        </Body>
+      </Screen>
+    );
+  }
+
   return (
     <Screen>
-      <View style={{ gap: space(1) }}>
-        <Title>Cycle</Title>
-        <Body muted>Know what's coming, together.</Body>
-      </View>
+      {header}
+      {partnerCard}
 
       {prediction ? (
         <Card tone="flame" style={{ alignItems: 'center', paddingVertical: space(7) }}>
