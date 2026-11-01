@@ -5,10 +5,11 @@ import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { pipeline } from 'node:stream/promises';
 
+import { contentFor } from './content.ts';
 import type { RecordRow } from './db.ts';
 
 /** Records each partner owns; only their author may change them. */
-const OWNED_KINDS = new Set(['profile', 'mood', 'answer', 'note', 'moment', 'cycle', 'pick']);
+const OWNED_KINDS = new Set(['profile', 'mood', 'answer', 'note', 'moment', 'cycle', 'pick', 'seen']);
 /** Records either partner may change; the latest write wins. */
 const SHARED_KINDS = new Set(['dateIdea', 'couple', 'coupon', 'letter']);
 
@@ -25,7 +26,7 @@ const PAIR_CODE_MS = 24 * 60 * 60_000;
 const TOKEN_IDLE_MS = 180 * 24 * 60 * 60_000;
 /** Owned records whose id is the author's member id, and those whose id starts with it. */
 const ID_IS_MEMBER = new Set(['profile', 'mood', 'cycle']);
-const ID_STARTS_WITH_MEMBER = new Set(['answer', 'pick']);
+const ID_STARTS_WITH_MEMBER = new Set(['answer', 'pick', 'seen']);
 /** Shared records with a writer: the other partner may only change these fields. */
 const WRITER_FIELD: Record<string, { writer: string; partnerMay: string }> = {
   coupon: { writer: 'giver', partnerMay: 'redeemedAt' },
@@ -211,6 +212,7 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
   const countMembers = db.prepare('SELECT COUNT(*) AS n FROM members WHERE couple_id = ?');
   const clearPairCode = db.prepare('UPDATE couples SET pair_code = NULL WHERE id = ?');
   const getCouple = db.prepare('SELECT id, pair_code, pair_code_at FROM couples WHERE id = ?');
+  const getCoupleStart = db.prepare('SELECT created_at FROM couples WHERE id = ?');
   const setPairCode = db.prepare('UPDATE couples SET pair_code = ?, pair_code_at = ? WHERE id = ?');
   const getPartner = db.prepare('SELECT id, name FROM members WHERE couple_id = ? AND id != ?');
   const bumpSeq = db.prepare('UPDATE couples SET seq = seq + 1 WHERE id = ? RETURNING seq');
@@ -426,6 +428,15 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
     if (photo && photo.couple_id === member.couple_id && photo.member_id === member.id) removeFile(id);
   }
 
+  /** The daily question and this fortnight's date ideas, from the banks in content/. */
+  function getContent(req: IncomingMessage, res: ServerResponse, url: URL) {
+    const member = authenticate(req);
+    const date = url.searchParams.get('date') ?? now().slice(0, 10);
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(date))) throw new HttpError(400, 'date must be YYYY-MM-DD');
+    const { created_at } = getCoupleStart.get(member.couple_id) as { created_at: string };
+    send(res, 200, contentFor(created_at, date));
+  }
+
   /** Signs this phone out: its token stops working straight away. */
   function logout(req: IncomingMessage, res: ServerResponse) {
     authenticate(req);
@@ -610,6 +621,7 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
       if (route === 'POST /api/logout') return logout(req, res);
       if (route === 'POST /api/logout/others') return logoutOthers(req, res);
       if (route === 'POST /api/leave') return leave(req, res);
+      if (route === 'GET /api/content') return getContent(req, res, url);
       if (route === 'GET /api/sync') return getSync(req, res, url);
       if (route === 'POST /api/sync') return await postSync(req, res);
       if (route === 'POST /api/photos') return await uploadPhoto(req, res);

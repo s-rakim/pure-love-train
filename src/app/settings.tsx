@@ -6,6 +6,7 @@ import { Alert, Platform, Pressable, Text, View } from 'react-native';
 
 import { AccountCard } from '../components/AccountCard';
 import { PairingCard } from '../components/PairingCard';
+import { UpdateRow } from '../components/UpdateRow';
 import { Body, Button, Card, Chip, Eyebrow, Field, Row, Screen, Wordmark } from '../components/ui';
 import { isValidKey } from '../lib/dates';
 import { useStore } from '../lib/store';
@@ -29,14 +30,23 @@ export default function Settings() {
   const [me, setMe] = useState(state.names.me);
   const [partner, setPartner] = useState(state.names.partner);
   const [since, setSince] = useState(state.togetherSince ?? '');
-  const sinceValid = since === '' || isValidKey(since);
+  const [myBirthday, setMyBirthday] = useState(state.birthdays?.me ?? '');
+  const [theirBirthday, setTheirBirthday] = useState(state.birthdays?.partner ?? '');
+  // A synced partner shares their own birthday, so it's only typed in here when you're not linked.
+  const askPartnerBirthday = !state.sync;
+  const datesValid = [since, myBirthday, theirBirthday].every((d) => d === '' || isValidKey(d));
 
   const saveProfile = () => {
-    if (!me.trim() || !partner.trim() || !sinceValid) return;
+    if (!me.trim() || !partner.trim() || !datesValid) return;
     update((s) => ({
       ...s,
       names: { me: me.trim(), partner: partner.trim() },
       togetherSince: since || undefined,
+      birthdays: {
+        ...s.birthdays,
+        me: myBirthday || undefined,
+        ...(askPartnerBirthday ? { partner: theirBirthday || undefined } : {}),
+      },
     }));
   };
 
@@ -93,8 +103,26 @@ export default function Settings() {
           maxLength={10}
           keyboardType="numbers-and-punctuation"
         />
-        {!sinceValid ? <Body style={{ color: colors.flameDeep, fontSize: 13 }}>Use YYYY-MM-DD.</Body> : null}
-        <Button label="Save" onPress={saveProfile} disabled={!me.trim() || !partner.trim() || !sinceValid} />
+        <Field
+          label="Your birthday"
+          value={myBirthday}
+          onChangeText={setMyBirthday}
+          placeholder="YYYY-MM-DD"
+          maxLength={10}
+          keyboardType="numbers-and-punctuation"
+        />
+        {askPartnerBirthday ? (
+          <Field
+            label="Partner's birthday"
+            value={theirBirthday}
+            onChangeText={setTheirBirthday}
+            placeholder="YYYY-MM-DD"
+            maxLength={10}
+            keyboardType="numbers-and-punctuation"
+          />
+        ) : null}
+        {!datesValid ? <Body style={{ color: colors.flameDeep, fontSize: 13 }}>Use YYYY-MM-DD.</Body> : null}
+        <Button label="Save" onPress={saveProfile} disabled={!me.trim() || !partner.trim() || !datesValid} />
       </Card>
 
       <PairingCard />
@@ -150,6 +178,23 @@ export default function Settings() {
             </Body>
           </>
         ) : null}
+        {Platform.OS !== 'web' ? (
+          <>
+            <Eyebrow>Notifications</Eyebrow>
+            <Row>
+              <Chip
+                label="On"
+                selected={state.notifications !== false}
+                onPress={() => update((s) => ({ ...s, notifications: true }))}
+              />
+              <Chip label="Off" selected={state.notifications === false} onPress={() => update((s) => ({ ...s, notifications: false }))} />
+            </Row>
+            <Body muted style={{ fontSize: 13 }}>
+              New moments, notes and letters, plus an 8pm nudge if your three aren't done. Your phone checks your server
+              every 15 to 30 minutes, so they can take that long to arrive.
+            </Body>
+          </>
+        ) : null}
       </Card>
 
       <Card>
@@ -186,6 +231,7 @@ export default function Settings() {
       <View style={{ alignItems: 'center', gap: space(1) }}>
         <Wordmark size={22} />
         <Body muted style={{ fontSize: 12 }}>Version {Constants.expoConfig?.version}</Body>
+        <UpdateRow />
       </View>
     </Screen>
   );

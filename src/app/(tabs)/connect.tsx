@@ -5,7 +5,7 @@ import { QuestionCard } from '../../components/QuestionCard';
 import { Body, Button, Card, Eyebrow, Field, Row, Screen, SectionTitle, Title } from '../../components/ui';
 import { relativeTime, shortDate } from '../../lib/dates';
 import { useNames, useToday } from '../../lib/hooks';
-import { questionForDay } from '../../lib/questions';
+import { questionText } from '../../lib/questions';
 import { newId, useStore } from '../../lib/store';
 import { makeStyles, radius, space, useTheme } from '../../theme';
 
@@ -71,7 +71,7 @@ export default function Connect() {
           {pastAnswers.map(([key, a]) => (
             <Card key={key} style={{ gap: space(2) }}>
               <Eyebrow color={colors.muted}>{shortDate(key)}</Eyebrow>
-              <Text style={styles.pastQuestion}>{questionForDay(key).text}</Text>
+              <Text style={styles.pastQuestion}>{questionText(state.questions, key)}</Text>
               <Body style={{ fontSize: 14 }}>
                 <Text style={styles.who}>{names.me}: </Text>
                 {a.me}

@@ -43,6 +43,10 @@ export type Moment = {
   videoId?: string;
   /** For a video: its file extension (mp4, mov…), so a downloaded copy plays and saves properly. */
   videoExt?: string;
+  /** Opens once for the partner, then it's gone. Never shown on the widget. */
+  viewOnce?: boolean;
+  /** When the partner opened a view-once moment. */
+  openedAt?: string;
 };
 
 export const isVideo = (m: Pick<Moment, 'videoUri' | 'videoId'>) => !!(m.videoUri || m.videoId);
@@ -135,6 +139,16 @@ export type State = {
   picks: Record<string, Partial<Record<Person, Side>>>;
   letters: Letter[];
   nextDate?: NextDate;
+  /** Missed days you brought back with a streak restore (two a month), shared by you both. */
+  restores?: DateKey[];
+  /** Birthdays, YYYY-MM-DD. Yours syncs with your profile. */
+  birthdays?: Partial<Record<Person, DateKey>>;
+  /** The daily question from your server, by day, so you both get the same one. */
+  questions?: Record<DateKey, string>;
+  /** This fortnight's fresh date ideas from your server. */
+  freshIdeas?: string[];
+  /** Reminders and alerts for new things from your partner. Stays on this phone. */
+  notifications?: boolean;
   partnerCycle?: PartnerCycle;
   sync?: SyncState;
   /** Light, dark or follow the phone. Stays on this phone and never syncs. */

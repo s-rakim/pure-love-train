@@ -290,3 +290,43 @@ describe('server addresses', () => {
     assert.equal(isPrivateHttp('http://example.com:8787'), false);
   });
 });
+
+describe('view-once moments', () => {
+  const rec = (kind: string, id: string, data: unknown, author = PARTNER): PulledRecord => ({ kind, id, data, author, seq: 1 });
+
+  it('arrives locked, tells the sender once opened, then drops its photo from the server', () => {
+    // Sam sends a view-once photo.
+    let mine = baseState();
+    mine = applyRecords(mine, [rec('moment', 'v1', { photoId: 'p9', caption: '', createdAt: '2026-10-14T10:00:00Z', viewOnce: true })], { v1: 'file:///v.jpg' });
+    const got = mine.moments.find((m) => m.id === 'v1')!;
+    assert.equal(got.viewOnce, true);
+    assert.equal(got.openedAt, undefined);
+
+    // Alex opens it: a seen record goes out under Alex's own id.
+    mine.moments = mine.moments.map((m) => (m.id === 'v1' ? { ...m, uri: '', openedAt: '2026-10-14T12:00:00Z' } : m));
+    const seen = outgoingRecords(mine, '2026-10-14').get(`seen:${ME}:v1`);
+    assert.deepEqual(seen?.data, { at: '2026-10-14T12:00:00Z' });
+
+    // On Sam's phone the seen record marks the moment opened, and the moment goes back out without its photo.
+    let theirs = baseState();
+    theirs.moments = [{ id: 'v1', uri: 'file:///v.jpg', caption: '', from: 'me', createdAt: '2026-10-14T10:00:00Z', photoId: 'p9', viewOnce: true }];
+    theirs = applyRecords(theirs, [rec('seen', `${PARTNER}:v1`, { at: '2026-10-14T12:00:00Z' })]);
+    const out = outgoingRecords(theirs, '2026-10-14').get('moment:v1')!.data as Record<string, unknown>;
+    assert.equal(out.photoId, undefined);
+    assert.equal(out.openedAt, '2026-10-14T12:00:00Z');
+
+    // That stripped record leaves an "Opened" tile on Alex's phone.
+    mine = applyRecords(mine, [rec('moment', 'v1', out)]);
+    const tile = mine.moments.find((m) => m.id === 'v1')!;
+    assert.equal(tile.uri, '');
+    assert.equal(tile.openedAt, '2026-10-14T12:00:00Z');
+  });
+
+  it('merges streak restores from both phones', () => {
+    let s = baseState();
+    s.restores = ['2026-10-03'];
+    s = applyRecords(s, [rec('couple', 'restores', { days: ['2026-10-09'] })]);
+    assert.deepEqual(s.restores, ['2026-10-03', '2026-10-09']);
+    assert.ok(pendingChanges(s, '2026-10-13').some((c) => c.id === 'restores'));
+  });
+});

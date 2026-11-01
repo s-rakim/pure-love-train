@@ -9,6 +9,7 @@
     "@react-native-async-storage/async-storage": "2.2.0",
     "@react-native-google-signin/google-signin": "^16.2.0",
     "expo": "~57.0.28",
+    "expo-background-task": "~57.0.21",
     "expo-build-properties": "~57.0.22",
     "expo-constants": "~57.0.21",
     "expo-file-system": "~57.0.7",
@@ -19,9 +20,13 @@
     "expo-linear-gradient": "~57.0.2",
     "expo-linking": "~57.0.12",
     "expo-media-library": "~57.0.5",
+    "expo-notifications": "~57.0.22",
     "expo-router": "~57.0.26",
+    "expo-secure-store": "~57.0.4",
     "expo-status-bar": "~57.0.1",
     "expo-system-ui": "~57.0.4",
+    "expo-task-manager": "~57.0.21",
+    "expo-updates": "~57.0.26",
     "expo-video": "~57.0.5",
     "expo-video-thumbnails": "~57.0.2",
     "react": "19.2.3",
@@ -30,8 +35,7 @@
     "react-native-android-widget": "^0.26.0",
     "react-native-safe-area-context": "~5.7.0",
     "react-native-screens": "~4.26.0",
-    "react-native-web": "^0.21.4",
-    "expo-secure-store": "~57.0.4"
+    "react-native-web": "^0.21.4"
   },
   "devDependencies": {
     "@types/node": "^22.20.5",

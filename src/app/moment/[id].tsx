@@ -23,7 +23,8 @@ export default function MomentViewer() {
   const { state, update } = useStore();
   const names = useNames();
   const { width } = useWindowDimensions();
-  const moments = state.moments;
+  // View-once moments open on their own screen, without saving or swiping.
+  const moments = state.moments.filter((m) => !m.viewOnce);
   const start = Math.max(0, moments.findIndex((m) => m.id === id));
   const [index, setIndex] = useState(start);
   const [saving, setSaving] = useState(false);

@@ -6,7 +6,7 @@ import { MomentWidget } from './MomentWidget';
 
 /** The widget for this phone: the partner's newest moment, in light and dark (or the look chosen in Settings). */
 export function momentWidget(state: State, info: Pick<WidgetInfo, 'width' | 'height'>): WidgetRepresentation {
-  const moment = state.moments.find((m) => m.from === 'partner');
+  const moment = state.moments.find((m) => m.from === 'partner' && !m.viewOnce);
   const make = (colors: Palette) => (
     <MomentWidget
       moment={moment}

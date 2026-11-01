@@ -1,7 +1,10 @@
 import { addDays, fromKey, toKey, type DateKey } from './dates.ts';
 import type { Person, State } from './store';
 
-export type StreakInput = Pick<State, 'answers' | 'moments' | 'moods' | 'moodDays'>;
+export type StreakInput = Pick<State, 'answers' | 'moments' | 'moods' | 'moodDays' | 'restores'>;
+
+/** Free streak restores each calendar month. */
+export const RESTORES_PER_MONTH = 2;
 
 /** What each of you has ticked off on a day: the question, a moment and a mood. */
 export function dayProgress(s: StreakInput, day: DateKey): Record<Person, { answer: boolean; moment: boolean; mood: boolean }> {
@@ -13,9 +16,12 @@ export function dayProgress(s: StreakInput, day: DateKey): Record<Person, { answ
   return { me: side('me'), partner: side('partner') };
 }
 
-/** Days where both of you did all three: answered the question, sent a moment and shared a mood. */
+/**
+ * Days where both of you did all three: answered the question, sent a moment and
+ * shared a mood. Days brought back with a restore count too.
+ */
 export function activeDays(s: StreakInput): Set<DateKey> {
-  const days = new Set<DateKey>();
+  const days = new Set<DateKey>(s.restores ?? []);
   for (const [key, a] of Object.entries(s.answers)) {
     if (!a.me || !a.partner) continue;
     const { me, partner } = dayProgress(s, key);
@@ -36,6 +42,22 @@ export function streakLength(days: Set<DateKey>, today: DateKey): number {
     day = addDays(day, -1);
   }
   return count;
+}
+
+/** Restores still free in the month of `day`. */
+export function restoresLeft(restores: DateKey[] | undefined, day: DateKey): number {
+  const month = day.slice(0, 7);
+  return Math.max(0, RESTORES_PER_MONTH - (restores ?? []).filter((d) => d.startsWith(month)).length);
+}
+
+/**
+ * The day a restore would bring back: yesterday, when missing it broke a streak
+ * that was still going the day before, and that month still has a restore left.
+ */
+export function restorableDay(days: Set<DateKey>, restores: DateKey[] | undefined, today: DateKey): DateKey | null {
+  const yesterday = addDays(today, -1);
+  if (days.has(yesterday) || !days.has(addDays(today, -2))) return null;
+  return restoresLeft(restores, yesterday) > 0 ? yesterday : null;
 }
 
 /** The current week, Monday first, with which days counted. */

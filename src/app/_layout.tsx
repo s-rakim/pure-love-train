@@ -7,6 +7,7 @@ import { StatusBar } from 'expo-status-bar';
 import { View } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 
+import { NotifyAgent } from '../components/NotifyAgent';
 import { SyncAgent } from '../components/SyncAgent';
 import { ThemeProvider } from '../components/ThemeProvider';
 import { WidgetAgent } from '../components/WidgetAgent';
@@ -46,6 +47,7 @@ function Navigator() {
       <StatusBar style={scheme === 'dark' ? 'light' : 'dark'} />
       <SyncAgent />
       <WidgetAgent />
+      <NotifyAgent />
       <Stack
         screenOptions={{
           headerShadowVisible: false,
@@ -63,6 +65,7 @@ function Navigator() {
         <Stack.Screen name="this-or-that" options={{ title: 'This or that' }} />
         <Stack.Screen name="letters" options={{ title: 'Open when…' }} />
         <Stack.Screen name="moment/[id]" options={{ headerShown: false, presentation: 'fullScreenModal', animation: 'fade' }} />
+        <Stack.Screen name="once/[id]" options={{ headerShown: false, presentation: 'fullScreenModal', animation: 'fade' }} />
       </Stack>
     </>
   );

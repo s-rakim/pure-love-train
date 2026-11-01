@@ -5,7 +5,7 @@ import { Pressable, Text, View } from 'react-native';
 
 import { Flame } from '../../components/Flame';
 import { NextDateSheet } from '../../components/NextDateSheet';
-import { Avatar, Body, Button, Card, Eyebrow, Field, Row, Screen, SectionTitle, Sheet, Title } from '../../components/ui';
+import { Avatar, Body, Button, Card, Chip, Eyebrow, Field, Row, Screen, SectionTitle, Sheet, Title } from '../../components/ui';
 import { addDays, diffDays, fromKey, shortDate, toKey, type DateKey } from '../../lib/dates';
 import { useDaysTogether, useNames, useStreak, useToday } from '../../lib/hooks';
 import { newId, useStore } from '../../lib/store';
@@ -105,6 +105,11 @@ export default function Us() {
     update((s) => ({ ...s, dateIdeas: [{ id: newId(), text, done: false }, ...s.dateIdeas] }));
     setIdea('');
   };
+
+  // New ideas from your server every two weeks; tap one to add it to your list.
+  const fresh = (state.freshIdeas ?? []).filter((t) => !state.dateIdeas.some((d) => d.text === t));
+  const addFresh = (text: string) =>
+    update((s) => ({ ...s, dateIdeas: [{ id: newId(), text, done: false }, ...s.dateIdeas] }));
 
   const toggleIdea = (id: string) =>
     update((s) => ({
@@ -239,6 +244,16 @@ export default function Us() {
           </View>
           <Button label="Add" variant="secondary" onPress={addIdea} disabled={!idea.trim()} />
         </Row>
+        {fresh.length ? (
+          <View style={{ gap: space(2) }}>
+            <Eyebrow color={colors.inkSoft}>Fresh this fortnight</Eyebrow>
+            <View style={styles.freshRow}>
+              {fresh.map((text) => (
+                <Chip key={text} label={`+ ${text}`} onPress={() => addFresh(text)} />
+              ))}
+            </View>
+          </View>
+        ) : null}
         {state.dateIdeas.map((d) => (
           <Row key={d.id} style={styles.idea}>
             <Pressable
@@ -282,6 +297,7 @@ export default function Us() {
 }
 
 const useStyles = makeStyles((colors, fonts) => ({
+  freshRow: { flexDirection: 'row', flexWrap: 'wrap', gap: space(2) },
   pairTitle: { ...fonts.bodyBold, fontSize: 18, color: colors.white },
   pairBody: { ...fonts.body, fontSize: 14, lineHeight: 20, color: colors.white, opacity: 0.9 },
   bigNumber: { ...fonts.display, fontSize: 48, lineHeight: 52, color: colors.ink, marginTop: -space(2) },

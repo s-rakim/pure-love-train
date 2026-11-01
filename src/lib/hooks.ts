@@ -2,7 +2,7 @@ import { useMemo } from 'react';
 
 import { calendarMap, predict } from './cycle';
 import { diffDays, todayKey } from './dates';
-import { activeDays, dayProgress, streakLength, weekStrip } from './streak';
+import { activeDays, dayProgress, restorableDay, restoresLeft, streakLength, weekStrip } from './streak';
 import { useStore } from './store';
 
 export function useToday() {
@@ -41,10 +41,11 @@ export function useNames() {
 export function useStreak() {
   const { state } = useStore();
   const today = useToday();
-  const { answers, moments, moods, moodDays } = state;
+  const { answers, moments, moods, moodDays, restores } = state;
   return useMemo(() => {
-    const days = activeDays({ answers, moments, moods, moodDays });
+    const days = activeDays({ answers, moments, moods, moodDays, restores });
     const progress = dayProgress({ answers, moments, moods, moodDays }, today);
+    const restorable = restorableDay(days, restores, today);
     const all = (p: (typeof progress)['me']) => p.answer && p.moment && p.mood;
     return {
       count: streakLength(days, today),
@@ -52,6 +53,9 @@ export function useStreak() {
       doneToday: days.has(today),
       meDone: all(progress.me),
       partnerDone: all(progress.partner),
+      /** A missed yesterday that a restore can bring back, and how many are left. */
+      restorable,
+      restoresLeft: restorable ? restoresLeft(restores, restorable) : 0,
     };
-  }, [answers, moments, moods, moodDays, today]);
+  }, [answers, moments, moods, moodDays, restores, today]);
 }

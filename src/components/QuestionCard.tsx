@@ -3,7 +3,7 @@ import { useState } from 'react';
 import { Text, View } from 'react-native';
 
 import { useNames, useToday } from '../lib/hooks';
-import { questionForDay } from '../lib/questions';
+import { questionText } from '../lib/questions';
 import { useStore } from '../lib/store';
 import { makeStyles, radius, space, useTheme } from '../theme';
 import { Avatar, Button, Card, Eyebrow, Field, Row } from './ui';
@@ -15,7 +15,7 @@ export function QuestionCard() {
   const { state, update } = useStore();
   const names = useNames();
   const today = useToday();
-  const question = questionForDay(today);
+  const question = { text: questionText(state.questions, today) };
   const answers = state.answers[today] ?? {};
   const [draft, setDraft] = useState('');
 

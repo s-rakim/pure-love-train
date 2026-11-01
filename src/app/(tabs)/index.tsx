@@ -7,6 +7,7 @@ import { Flame } from '../../components/Flame';
 import { NextDateSheet } from '../../components/NextDateSheet';
 import { PhotoWidget } from '../../components/PhotoWidget';
 import { Body, Card, Chip, Eyebrow, Heading, Row, Screen, SectionTitle, Sheet, Title, tap } from '../../components/ui';
+import { celebrationsFor } from '../../lib/celebrate';
 import { phaseCopy, sharedCycleOn } from '../../lib/cycle';
 import { diffDays, relativeTime, shortDate, toKey } from '../../lib/dates';
 import { useCycle, useDaysTogether, useNames, useStreak, useToday } from '../../lib/hooks';
@@ -64,7 +65,13 @@ export default function Home() {
   const [sentTap, setSentTap] = useState<string | null>(null);
   const [planning, setPlanning] = useState(false);
 
-  const latestFromPartner = state.moments.find((m) => m.from === 'partner');
+  // View-once moments only show in History, never here or on the widget.
+  const latestFromPartner = state.moments.find((m) => m.from === 'partner' && !m.viewOnce);
+  const celebrations = celebrationsFor(state, names, today);
+  const restore = () => {
+    const day = streak.restorable;
+    if (day) update((s) => ({ ...s, restores: [...new Set([...(s.restores ?? []), day])].sort() }));
+  };
   const latestNoteFromPartner = state.notes.find((n) => n.from === 'partner');
   const checklist: { label: string; done: boolean; href: Href }[] = [
     { label: "Answer today's question", done: !!state.answers[today]?.me, href: '/connect' },
@@ -127,6 +134,14 @@ export default function Home() {
         </Pressable>
       </Row>
 
+      {celebrations.map((c) => (
+        <Card key={c.title} tone="blush" style={{ alignItems: 'center', gap: space(1) }}>
+          <Text style={{ fontSize: 40 }}>{c.emoji}</Text>
+          <Text style={[styles.heroTitle, { textAlign: 'center' }]}>{c.title}</Text>
+          <Body style={{ fontSize: 14, textAlign: 'center' }}>{c.body}</Body>
+        </Card>
+      ))}
+
       <Card style={{ gap: space(4) }}>
         <Row style={{ gap: space(2) }}>
           <Flame size={58} lit={streak.count > 0 || streak.doneToday} />
@@ -143,6 +158,17 @@ export default function Home() {
             </Body>
           </View>
         </Row>
+        {streak.restorable ? (
+          <Pressable accessibilityRole="button" onPress={restore} style={styles.restore}>
+            <Ionicons name="refresh-circle" size={22} color={colors.flame} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.checkLabel}>Missed yesterday? Restore your streak</Text>
+              <Body muted style={{ fontSize: 12 }}>
+                {streak.restoresLeft} of 2 free restores left this month
+              </Body>
+            </View>
+          </Pressable>
+        ) : null}
         <View style={{ gap: space(2) }}>
           {checklist.map((item) => (
             <Pressable
@@ -401,6 +427,15 @@ function MoodTile({ who, name, onPress }: { who: Person; name: string; onPress?:
 }
 
 const useStyles = makeStyles((colors, fonts) => ({
+  restore: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space(3),
+    padding: space(3),
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.flame,
+  },
   streakPill: {
     flexDirection: 'row',
     alignItems: 'center',

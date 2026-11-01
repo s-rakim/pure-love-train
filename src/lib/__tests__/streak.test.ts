@@ -2,7 +2,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { activeDays, dayProgress, streakLength, weekStrip } from '../streak.ts';
+import { activeDays, dayProgress, restorableDay, restoresLeft, streakLength, weekStrip } from '../streak.ts';
 
 describe('streak', () => {
   const days = new Set(['2026-10-10', '2026-10-11', '2026-10-12']);
@@ -17,6 +17,16 @@ describe('streak', () => {
 
   it('resets after a missed day', () => {
     assert.equal(streakLength(days, '2026-10-14'), 0);
+  });
+
+  it('offers a restore for a missed yesterday, two a month', () => {
+    assert.equal(restorableDay(days, [], '2026-10-14'), '2026-10-13');
+    assert.equal(restorableDay(days, [], '2026-10-13'), null, 'nothing missed yet');
+    assert.equal(restorableDay(days, [], '2026-10-15'), null, 'two days missed is too late');
+    assert.equal(restorableDay(days, ['2026-10-02', '2026-10-05'], '2026-10-14'), null, 'none left this month');
+    assert.equal(restoresLeft(['2026-09-30', '2026-10-02'], '2026-10-14'), 1);
+    const restored = activeDays({ answers: {}, moments: [], moods: {}, restores: ['2026-10-13'] });
+    assert.equal(streakLength(new Set([...days, ...restored]), '2026-10-14'), 4);
   });
 
   it('counts a day only once you both answer, send a moment and share a mood', () => {

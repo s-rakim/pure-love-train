@@ -2,17 +2,19 @@
 
 (Formerly Pure Love.) One cosy app for couples that brings together three things people usually juggle in separate apps:
 
-- **Home** – your shared streak with a little flame that stays lit while you keep showing up, today's checklist, both moods, the latest moment and note from your partner, and a grid of things to do together: send a hug (a one-tap love note), **This or that** (pick a side of quick pairs, then see where you match), **Open when…** letters that stay sealed until your partner chooses to open them, love coupons your partner can redeem, a date night spin that picks from your date ideas, and a countdown to your next date.
-- **Connect** – a daily question whose answers unlock only once you've both replied, love notes that read like a chat (newest at the bottom), and every past answer.
-- **Moments** – take or pick a photo, or a video of up to 30 seconds, add a caption and send it to your partner. Their newest moment shows on an Android home screen widget (a still frame for a video), and yours on theirs. Tap any moment in History to see it full size or play the video, swipe through the rest and save it to your phone. History holds both your moments and your partner's.
+- **Home** – your shared streak with a little flame that stays lit while you keep showing up (it resets after a missed day, with two free restores a month), a celebration card on anniversaries, birthdays and every 100 days together, today's checklist, both moods, the latest moment and note from your partner, and a grid of things to do together: send a hug (a one-tap love note), **This or that** (pick a side of quick pairs, then see where you match), **Open when…** letters that stay sealed until your partner chooses to open them, love coupons your partner can redeem, a date night spin that picks from your date ideas, and a countdown to your next date.
+- **Connect** – a daily question (738 of them on your server, so none repeats for two years) whose answers unlock only once you've both replied, love notes that read like a chat (newest at the bottom), and every past answer.
+- **Moments** – take or pick a photo, or a video of up to 30 seconds, add a caption and send it to your partner. Their newest moment shows on an Android home screen widget (a still frame for a video), and yours on theirs. Tap any moment in History to see it full size or play the video, swipe through the rest and save it to your phone. History holds both your moments and your partner's. Tick **View once** for something special: it never shows on the widget, and your partner can open it once from History.
 - **Cycle** – tap **Period started** and **Period ended** to confirm the exact first and last day (today, yesterday or any day on the calendar), and fix or add any past period. **This cycle** lists each stage (period, follicular, ovulation, luteal) with its dates and length, and **Your cycles** shows how long each past cycle and period lasted. Irregular cycles get a window for the next period and a wider fertile window, worked out from your shortest and longest recent cycles. Log flow, symptoms and mood, and choose whether your partner sees your phase.
-- **Us** – the couple dashboard: streak week, days together, countdowns to your next date, milestones and anniversaries, pairing and a shared date-idea list.
+- **Us** – the couple dashboard: streak week, days together, countdowns to your next date, milestones and anniversaries, pairing and a shared date-idea list with three fresh ideas every two weeks.
 
 The look follows the Candle couples app: a dark, near-black interface lit by a bright flame orange, colourful activity cards and a floating, frosted-glass tab bar that sits above the phone's navigation buttons. There's also a soft blush-pink light mode. Text uses the phone's own font, so the app matches the rest of the phone; DM Sans is still available. The app follows the phone's light or dark setting, or you can pick one in **Settings → Appearance**, along with the font. All code, artwork and copy here is original.
 
 | Home | Connect | Moments | Cycle | Us |
 | --- | --- | --- | --- | --- |
 | ![Home](docs/screenshots/home.png) | ![Connect](docs/screenshots/connect.png) | ![Moments](docs/screenshots/moments.png) | ![Cycle](docs/screenshots/cycle.png) | ![Us](docs/screenshots/us.png) |
+
+**Keeping it running yourself:** [docs/GUIDE.md](docs/GUIDE.md) explains how everything works, how to ship a fix (over the air or a new APK), and what to try when something breaks.
 
 ## Running it
 
@@ -86,7 +88,7 @@ The app asks the server for the client ID, so nothing needs rebuilding when you 
 Next steps:
 
 1. An iOS home screen widget (a WidgetKit extension via a config plugin such as `@bacons/apple-targets`).
-2. Push notifications when your partner sends a moment or answers the daily question.
+2. Instant push notifications through Firebase. Today the app checks your server in the background every 15 to 30 minutes and posts local notifications.
 
 ## Project layout
 
@@ -95,13 +97,15 @@ src/app/            screens (Expo Router)
   (tabs)/           Home, Connect, Moments, Cycle, Us
   log/[date].tsx    day log modal
   moment/[id].tsx   full-size photo and video viewer
+  once/[id].tsx     view-once moments
   onboarding.tsx, settings.tsx, coupons.tsx, letters.tsx, this-or-that.tsx
 src/components/     shared UI, flame, calendar, period and next-date sheets, photo widget, video player, question card, sync, theme
-src/lib/            store, cycle maths, dates, questions, photo and video helpers, sync, Google sign-in
+src/lib/            store, cycle maths, dates, questions, streak, celebrations, photo and video helpers, sync, notifications, Google sign-in
 src/theme/          light and dark palettes, fonts, spacing
 src/widget/         the Android home screen widget and its background refresh
 index.ts            app entry; registers the widget
-server/             sync server (Node + SQLite), Dockerfile
+server/             sync server (Node + SQLite), Dockerfile; daily questions and date ideas in server/src/content/
+docs/GUIDE.md       how it all works and how to fix it
 docker-compose.yml  runs the server with a persistent volume
 ```
 

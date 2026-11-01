@@ -317,3 +317,43 @@ describe('limits', () => {
     assert.equal(status, 429);
   });
 });
+
+describe('daily content', () => {
+  it('has two years of questions and date ideas, none repeated', async () => {
+    const { QUESTIONS, DATE_IDEAS } = await import('../src/content.ts');
+    assert.ok(QUESTIONS.length >= 730, `only ${QUESTIONS.length} questions`);
+    assert.equal(new Set(QUESTIONS.map((q) => q.toLowerCase())).size, QUESTIONS.length, 'a question repeats');
+    assert.ok(DATE_IDEAS.length >= 156, 'needs 3 ideas a fortnight for two years');
+    assert.equal(new Set(DATE_IDEAS.map((q) => q.toLowerCase())).size, DATE_IDEAS.length, 'a date idea repeats');
+  });
+
+  it('gives both partners the same question, a new one each day', async () => {
+    const alex = (await call('/api/couples', { method: 'POST', json: { name: 'Alex' } })).body;
+    const sam = (await call('/api/couples/join', { method: 'POST', json: { name: 'Sam', code: alex.pairCode } })).body;
+    const today = new Date().toISOString().slice(0, 10);
+    const first = await call(`/api/content?date=${today}`, { token: alex.token });
+    assert.equal(first.status, 200);
+    assert.equal(first.body.question.number, 1);
+    assert.equal(first.body.dateIdeas.length, 3);
+    const partner = await call(`/api/content?date=${today}`, { token: sam.token });
+    assert.deepEqual(partner.body, first.body);
+
+    const later = new Date(Date.now() + 15 * 86_400_000).toISOString().slice(0, 10);
+    const next = await call(`/api/content?date=${later}`, { token: alex.token });
+    assert.equal(next.body.question.number, 16);
+    assert.notEqual(next.body.question.text, first.body.question.text);
+    assert.notDeepEqual(next.body.dateIdeas, first.body.dateIdeas, 'ideas change each fortnight');
+
+    assert.equal((await call('/api/content?date=nope', { token: alex.token })).status, 400);
+    assert.equal((await call('/api/content')).status, 401);
+  });
+
+  it('lets each partner mark a view-once moment as seen, only under their own id', async () => {
+    const alex = (await call('/api/couples', { method: 'POST', json: { name: 'Alex' } })).body;
+    const sam = (await call('/api/couples/join', { method: 'POST', json: { name: 'Sam', code: alex.pairCode } })).body;
+    const mine = await call('/api/sync', { method: 'POST', token: sam.token, json: { records: [{ kind: 'seen', id: `${sam.memberId}:m1`, data: { at: 'x' } }] } });
+    assert.equal(mine.body.results[0].ok, true);
+    const theirs = await call('/api/sync', { method: 'POST', token: sam.token, json: { records: [{ kind: 'seen', id: `${alex.memberId}:m1`, data: { at: 'x' } }] } });
+    assert.equal(theirs.body.results[0].ok, false);
+  });
+});

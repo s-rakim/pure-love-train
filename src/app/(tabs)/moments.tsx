@@ -24,8 +24,10 @@ export default function Moments() {
   const [draft, setDraft] = useState<Draft | null>(null);
   const [caption, setCaption] = useState('');
   const [busy, setBusy] = useState(false);
+  // For special occasions: opens once for your partner and never shows on their widget.
+  const [once, setOnce] = useState(false);
 
-  const latestFromPartner = state.moments.find((m) => m.from === 'partner');
+  const latestFromPartner = state.moments.find((m) => m.from === 'partner' && !m.viewOnce);
   const latestFromMe = state.moments.find((m) => m.from === 'me');
 
   const capture = async (source: 'photo' | 'video' | 'library') => {
@@ -44,9 +46,11 @@ export default function Moments() {
       const id = newId();
       const files = await persistDraft(draft, id);
       const moment: Moment = { id, ...files, caption: caption.trim(), from: 'me', createdAt: new Date().toISOString() };
+      if (once) moment.viewOnce = true;
       update((s) => ({ ...s, moments: [moment, ...s.moments] }));
       setDraft(null);
       setCaption('');
+      setOnce(false);
     } catch (err) {
       Alert.alert("Couldn't save that moment", err instanceof Error ? err.message : String(err));
     } finally {
@@ -112,6 +116,18 @@ export default function Moments() {
             <Image source={{ uri: draft.uri }} style={styles.draft} contentFit="cover" />
           )}
           <Field value={caption} onChangeText={setCaption} placeholder="Add a caption…" maxLength={40} />
+          <Pressable
+            accessibilityRole="switch"
+            accessibilityState={{ checked: once }}
+            onPress={() => setOnce((v) => !v)}
+            style={styles.onceRow}
+          >
+            <Ionicons name={once ? 'checkmark-circle' : 'ellipse-outline'} size={22} color={once ? colors.flame : colors.muted} />
+            <View style={{ flex: 1 }}>
+              <Text style={styles.onceTitle}>View once</Text>
+              <Text style={styles.onceHint}>For something special. {names.partner} can open it once, and it never shows on the widget.</Text>
+            </View>
+          </Pressable>
           <Row>
             <Button label="Retake" variant="ghost" onPress={() => setDraft(null)} style={{ flex: 1 }} />
             <Button
@@ -162,12 +178,29 @@ export default function Moments() {
             <Pressable
               key={m.id}
               accessibilityLabel={`Open ${m.from === 'me' ? 'your' : `${names.partner}'s`} moment`}
-              onPress={() => router.push(`/moment/${m.id}`)}
+              onPress={() => {
+                if (!m.viewOnce) router.push(`/moment/${m.id}`);
+                else if (m.uri) router.push(`/once/${m.id}`);
+              }}
               onLongPress={() => remove(m)}
               style={styles.tile}
             >
-              <Image source={{ uri: m.uri }} style={StyleSheet.absoluteFill} contentFit="cover" />
-              {isVideo(m) ? <PlayBadge size={30} /> : null}
+              {m.viewOnce && (m.from === 'partner' || !m.uri) ? (
+                // Your partner's stays hidden until it's opened; after that only this tile is left.
+                <View style={styles.locked}>
+                  <Ionicons name={m.openedAt ? 'eye-off-outline' : 'eye-outline'} size={26} color={m.openedAt ? colors.muted : colors.flameDeep} />
+                  <Text style={[styles.lockedText, m.openedAt && { color: colors.muted }]}>{m.openedAt ? 'Opened' : 'Tap to view once'}</Text>
+                </View>
+              ) : (
+                <Image source={{ uri: m.uri }} style={StyleSheet.absoluteFill} contentFit="cover" />
+              )}
+              {m.viewOnce && m.from === 'me' && m.uri ? (
+                <View style={styles.onceBadge}>
+                  <Ionicons name={m.openedAt ? 'eye-off' : 'eye'} size={12} color={colors.white} />
+                  <Text style={styles.onceBadgeText}>{m.openedAt ? 'Opened' : 'Once'}</Text>
+                </View>
+              ) : null}
+              {isVideo(m) && !m.viewOnce ? <PlayBadge size={30} /> : null}
               <View style={styles.tileMeta}>
                 <Text style={styles.tileText} numberOfLines={1}>
                   {m.from === 'me' ? names.me : names.partner}
@@ -230,4 +263,22 @@ const useStyles = makeStyles((colors, fonts) => ({
     paddingVertical: 3,
   },
   tileText: { ...fonts.bodyMedium, fontSize: 10, color: colors.white },
+  onceRow: { flexDirection: 'row', alignItems: 'center', gap: space(3) },
+  onceTitle: { ...fonts.bodyBold, fontSize: 15, color: colors.ink },
+  onceHint: { ...fonts.body, fontSize: 12, lineHeight: 16, color: colors.muted },
+  locked: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center', gap: space(1), paddingBottom: space(4) },
+  lockedText: { ...fonts.bodyBold, fontSize: 11, color: colors.flameDeep, textAlign: 'center' },
+  onceBadge: {
+    position: 'absolute',
+    top: 6,
+    right: 6,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 3,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    borderRadius: radius.pill,
+    paddingHorizontal: 6,
+    paddingVertical: 2,
+  },
+  onceBadgeText: { ...fonts.bodyBold, fontSize: 10, color: colors.white },
 }));

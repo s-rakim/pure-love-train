@@ -6,8 +6,13 @@
   "build": {
     "preview": {
       "distribution": "internal",
-      "android": { "buildType": "apk" }
+      "android": {
+        "buildType": "apk"
+      },
+      "channel": "production"
     },
-    "production": {}
+    "production": {
+      "channel": "production"
+    }
   }
 }

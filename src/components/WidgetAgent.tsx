@@ -12,7 +12,7 @@ export function WidgetAgent() {
   const stateRef = useRef(state);
   stateRef.current = state;
 
-  const latest = state.moments.find((m) => m.from === 'partner');
+  const latest = state.moments.find((m) => m.from === 'partner' && !m.viewOnce);
   const key = JSON.stringify([latest?.id, latest?.uri, latest?.caption, state.names.partner, state.appearance, state.font, state.widgetPrivate]);
 
   useEffect(() => {

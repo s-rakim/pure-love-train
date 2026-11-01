@@ -40,7 +40,8 @@ export function outgoingRecords(s: State, today: DateKey = todayKey()): Map<stri
   if (!me) return out;
   const add = (kind: string, id: string, data: unknown) => out.set(recordKey({ kind, id }), { kind, id, data });
 
-  if (s.names.me) add('profile', me, { name: s.names.me });
+  const birthday = s.birthdays?.me;
+  if (s.names.me) add('profile', me, birthday ? { name: s.names.me, birthday } : { name: s.names.me });
   // The days carry the mood history the streak needs; the latest 60 are plenty.
   if (s.moods.me) add('mood', me, { ...s.moods.me, days: (s.moodDays?.me ?? []).slice(-60) });
   for (const [date, answer] of Object.entries(s.answers)) {
@@ -53,8 +54,14 @@ export function outgoingRecords(s: State, today: DateKey = todayKey()): Map<stri
     if (pick.me) add('pick', `${me}:${pair}`, { pair, choice: pick.me });
   }
   for (const m of s.moments) {
+    if (m.from === 'partner' && m.viewOnce && m.openedAt) add('seen', `${me}:${m.id}`, { at: m.openedAt });
     if (m.from !== 'me' || !m.photoId) continue;
-    const base = { photoId: m.photoId, caption: m.caption, createdAt: m.createdAt };
+    // Once a view-once moment is opened its photo and video leave the server.
+    if (m.viewOnce && m.openedAt) {
+      add('moment', m.id, { caption: m.caption, createdAt: m.createdAt, viewOnce: true, openedAt: m.openedAt });
+      continue;
+    }
+    const base = { photoId: m.photoId, caption: m.caption, createdAt: m.createdAt, ...(m.viewOnce ? { viewOnce: true } : {}) };
     if (!m.videoUri && !m.videoId) add('moment', m.id, base);
     // A video goes out once both its still frame and the video itself are on the server.
     else if (m.videoId) add('moment', m.id, { ...base, videoId: m.videoId, videoExt: m.videoExt ?? 'mp4' });
@@ -77,6 +84,7 @@ export function outgoingRecords(s: State, today: DateKey = todayKey()): Map<stri
 
   add('couple', 'settings', { togetherSince: s.togetherSince ?? null });
   if (s.nextDate) add('couple', 'next', { date: s.nextDate.date, label: s.nextDate.label });
+  if (s.restores?.length) add('couple', 'restores', { days: [...s.restores].sort() });
   for (const d of s.dateIdeas) add('dateIdea', d.id, { text: d.text, done: d.done });
   for (const c of s.coupons ?? []) {
     // Either of you may update a coupon (the giver writes it, the other redeems it), so the
@@ -163,6 +171,7 @@ export function applyRecords(
     switch (r.kind) {
       case 'profile':
         if (data?.name) next = { ...next, names: { ...next.names, [side]: data.name } };
+        if (data?.birthday) next = { ...next, birthdays: { ...next.birthdays, [side]: data.birthday } };
         break;
       case 'mood': {
         const moods = { ...next.moods };
@@ -192,7 +201,10 @@ export function applyRecords(
         const before = next.moments.find((m) => m.id === r.id);
         const moments = next.moments.filter((m) => m.id !== r.id);
         const uri = photoUris[r.id];
-        if (data && uri) {
+        if (data?.viewOnce && data.openedAt && !data.photoId) {
+          // Opened already, so only the tile saying so is left.
+          moments.push({ id: r.id, uri: '', caption: data.caption ?? '', from: side, createdAt: data.createdAt, viewOnce: true, openedAt: data.openedAt });
+        } else if (data && uri) {
           const moment: Moment = {
             id: r.id,
             uri,
@@ -201,6 +213,10 @@ export function applyRecords(
             createdAt: data.createdAt,
             photoId: data.photoId,
           };
+          if (data.viewOnce) {
+            moment.viewOnce = true;
+            if (before?.openedAt) moment.openedAt = before.openedAt;
+          }
           if (data.videoId) {
             // The video itself downloads separately; keep a copy that's already here.
             moment.videoId = data.videoId;
@@ -211,6 +227,14 @@ export function applyRecords(
         }
         moments.sort((a, b) => (a.createdAt < b.createdAt ? 1 : -1));
         next = { ...next, moments };
+        break;
+      }
+      case 'seen': {
+        // A view-once moment was opened; the id is "<member>:<moment id>".
+        const momentId = r.id.slice(r.id.indexOf(':') + 1);
+        if (data?.at) {
+          next = { ...next, moments: next.moments.map((m) => (m.id === momentId && !m.openedAt ? { ...m, openedAt: data.at } : m)) };
+        }
         break;
       }
       case 'pick': {
@@ -226,6 +250,11 @@ export function applyRecords(
         if (!mine) next = { ...next, partnerCycle: data ?? undefined };
         break;
       case 'couple':
+        if (r.id === 'restores') {
+          const days = new Set<DateKey>([...(next.restores ?? []), ...(data?.days ?? [])]);
+          next = { ...next, restores: [...days].sort() };
+          break;
+        }
         if (r.id === 'next') {
           next = { ...next, nextDate: data ? { date: data.date, label: data.label ?? '' } : undefined };
           break;

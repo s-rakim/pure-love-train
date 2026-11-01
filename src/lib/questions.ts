@@ -43,10 +43,15 @@ export const QUESTIONS = [
   'What is the best gift you have ever received from me?',
 ];
 
-/** The same question for both partners on a given day. */
+/** The built-in question for a day, used until your server has sent that day's one. */
 export function questionForDay(key: DateKey): { index: number; text: string } {
   const index = ((diffDays('2026-01-01', key) % QUESTIONS.length) + QUESTIONS.length) % QUESTIONS.length;
   return { index, text: QUESTIONS[index] };
+}
+
+/** The day's question: from your server when it has one (no repeats for two years), else built in. */
+export function questionText(questions: Record<DateKey, string> | undefined, key: DateKey): string {
+  return questions?.[key] ?? questionForDay(key).text;
 }
 
 export const DATE_IDEAS = [

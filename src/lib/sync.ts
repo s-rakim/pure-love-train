@@ -1,6 +1,7 @@
 import { Directory, File, Paths, UploadType } from 'expo-file-system';
 import { Platform } from 'react-native';
 
+import { todayKey } from './dates';
 import type { Moment, State, SyncState } from './store';
 import { applyRecords, backupOf, fingerprint, pendingChanges, recordKey, type PulledRecord } from './syncCore';
 
@@ -234,12 +235,35 @@ export async function pull(start: SyncState, update: Update) {
   }
 }
 
+/** When to ask again for a day's content after the server couldn't give it (an older server). */
+let contentRetryAt = 0;
+const CONTENT_RETRY_MS = 10 * 60_000;
+
+/** Fetches today's question and this fortnight's date ideas from the server, once a day. */
+async function fetchContent(start: SyncState, getState: () => State, update: Update) {
+  const today = todayKey();
+  if (getState().questions?.[today] || Date.now() < contentRetryAt) return;
+  try {
+    const content = await request<{ question: { text: string }; dateIdeas: string[] }>(start, `/api/content?date=${today}`);
+    update((s) => ({
+      ...s,
+      // The last 400 days are plenty for the past questions list.
+      questions: Object.fromEntries(Object.entries({ ...s.questions, [today]: content.question.text }).sort().slice(-400)),
+      freshIdeas: content.dateIdeas,
+    }));
+  } catch {
+    // Servers before 1.6 don't have it; the built-in questions fill in until it's rebuilt.
+    contentRetryAt = Date.now() + CONTENT_RETRY_MS;
+  }
+}
+
 async function runSync(getState: () => State, update: Update) {
   const start = getState().sync;
   if (!start) return;
 
   try {
     await pull(start, update);
+    await fetchContent(start, getState, update);
 
     // Upload photos and videos for moments taken on this phone.
     // One that fails stays on this phone and is retried next round; it
