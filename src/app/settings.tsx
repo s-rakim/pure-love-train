@@ -190,7 +190,7 @@ export default function Settings() {
               <Chip label="Off" selected={state.notifications === false} onPress={() => update((s) => ({ ...s, notifications: false }))} />
             </Row>
             <Body muted style={{ fontSize: 13 }}>
-              New moments, notes and letters, plus an 8pm nudge if your three aren't done. Your phone checks your server
+              New moments, notes, letters, moods and answers, plus an 8pm nudge if your three aren't done. Your phone checks your server
               every 15 to 30 minutes, so they can take that long to arrive.
             </Body>
           </>
