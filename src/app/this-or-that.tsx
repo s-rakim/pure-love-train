@@ -1,12 +1,16 @@
 import { Ionicons } from '@expo/vector-icons';
-import { useState } from 'react';
-import { Pressable, Text, View } from 'react-native';
+import { useEffect, useMemo, useState } from 'react';
+import { ActivityIndicator, InteractionManager, Pressable, Text, View } from 'react-native';
 
 import { Body, Button, Card, Eyebrow, Screen, SectionTitle, tap, textOn } from '../components/ui';
-import { useNames } from '../lib/hooks';
-import { splitOption, THIS_OR_THAT } from '../lib/questions';
+import { useNames, usePickCounts } from '../lib/hooks';
+import { splitOption } from '../lib/questions';
 import { useStore, type Side } from '../lib/store';
+import { pairById, pairsUpTo, PAIRS_PER_DAY, type Pair } from '../lib/thisOrThat';
 import { makeStyles, radius, space, useTheme } from '../theme';
+
+/** How many past picks show at first, and how many more each tap of Show more adds. */
+const HISTORY_PAGE = 30;
 
 /** "A kiss or a long hug", so the pair reads as one question. */
 function pairTitle(p: { a: string; b: string }) {
@@ -14,28 +18,42 @@ function pairTitle(p: { a: string; b: string }) {
   return `${splitOption(p.a).text} or ${b.startsWith('A ') ? `a${b.slice(1)}` : b}`;
 }
 
-/** This or that: pick a side of each pair, then see where the two of you agree. */
+/**
+ * This or that: pick a side of each pair, then see where the two of you agree.
+ * Fifty new pairs come out each day, and any you haven't picked wait for you.
+ */
 export default function ThisOrThat() {
   const { colors } = useTheme();
   const styles = useStyles();
   const { state, update } = useStore();
   const names = useNames();
+  const counts = usePickCounts();
   const picks = state.picks ?? {};
   // The pair just answered stays up to show how you compare, until Next.
   const [shown, setShown] = useState<string | null>(null);
+  const [historyShown, setHistoryShown] = useState(HISTORY_PAGE);
 
-  // Ones your partner already picked come first, so there's something to compare straight away.
-  const open = THIS_OR_THAT.filter((p) => !picks[p.id]?.me);
-  const queue = [...open.filter((p) => picks[p.id]?.partner), ...open.filter((p) => !picks[p.id]?.partner)];
-  const pair = shown ? THIS_OR_THAT.find((p) => p.id === shown) : queue[0];
+  // Working out tens of thousands of pairs takes a moment, so it waits until the screen has opened.
+  const [pairs, setPairs] = useState<Pair[] | null>(null);
+  useEffect(() => {
+    const task = InteractionManager.runAfterInteractions(() => setPairs(pairsUpTo(counts.out)));
+    return () => task.cancel();
+  }, [counts.out]);
+
+  const { queue, history } = useMemo(() => {
+    const out = pairs ?? [];
+    const open = out.filter((p) => !picks[p.id]?.me);
+    // Ones your partner already picked come first, so there's something to compare straight away;
+    // the rest go oldest first, so yesterday's leftovers come before today's.
+    const queue = [...open.filter((p) => picks[p.id]?.partner), ...open.filter((p) => !picks[p.id]?.partner)];
+    const history = out.filter((p) => picks[p.id]?.me).reverse();
+    return { queue, history };
+  }, [pairs, picks]);
+
+  const pair = shown ? pairById(shown) : queue[0];
   const mine = pair ? picks[pair.id]?.me : undefined;
   const theirs = pair ? picks[pair.id]?.partner : undefined;
-
-  const answered = THIS_OR_THAT.filter((p) => picks[p.id]?.me);
-  // Both picked first, then the ones still waiting on your partner.
-  const history = [...answered.filter((p) => picks[p.id]?.partner), ...answered.filter((p) => !picks[p.id]?.partner)];
-  const compared = answered.filter((p) => picks[p.id]?.partner);
-  const matches = compared.filter((p) => picks[p.id].me === picks[p.id].partner).length;
+  const left = queue.length;
 
   const choose = (id: string, side: Side) => {
     update((s) => ({ ...s, picks: { ...s.picks, [id]: { ...s.picks?.[id], me: side } } }));
@@ -48,6 +66,14 @@ export default function ThisOrThat() {
     const other = splitOption(theirs === 'a' ? pair.a : pair.b).text;
     return theirs === mine ? `💞 ${names.partner} picked ${other} too.` : `${names.partner} went for ${other}.`;
   };
+
+  if (!pairs) {
+    return (
+      <Screen edges={[]} style={{ paddingTop: space(6), alignItems: 'center' }}>
+        <ActivityIndicator color={colors.sky} />
+      </Screen>
+    );
+  }
 
   return (
     <Screen edges={[]} style={{ paddingTop: space(2) }}>
@@ -62,7 +88,7 @@ export default function ThisOrThat() {
           {shown ? (
             <>
               <Body style={{ fontSize: 15, textAlign: 'center' }}>{verdict()}</Body>
-              <Button label={queue.length ? 'Next' : 'Done'} onPress={() => setShown(null)} />
+              <Button label={left ? 'Next' : 'Done'} onPress={() => setShown(null)} />
             </>
           ) : (
             <Body muted style={{ fontSize: 13, textAlign: 'center' }}>
@@ -73,25 +99,28 @@ export default function ThisOrThat() {
       ) : (
         <Card style={{ alignItems: 'center', gap: space(2) }}>
           <Text style={{ fontSize: 40 }}>🎉</Text>
-          <Text style={styles.doneTitle}>You've picked them all</Text>
+          <Text style={styles.doneTitle}>That's all for today</Text>
           <Body muted style={{ fontSize: 14, textAlign: 'center' }}>
-            {compared.length < answered.length
-              ? `Once ${names.partner} catches up, you'll see how you compare below.`
-              : 'Scroll down to see how you compare.'}
+            {PAIRS_PER_DAY} new pairs come out tomorrow.
+            {counts.compared < counts.mine
+              ? ` Once ${names.partner} catches up, you'll see how you compare below.`
+              : ' Scroll down to see how you compare.'}
           </Body>
         </Card>
       )}
       <Body muted style={{ fontSize: 13, textAlign: 'center' }}>
-        {answered.length} of {THIS_OR_THAT.length} picked
+        {left
+          ? `${left} left to pick. Any you don't get to stay here for tomorrow.`
+          : `${counts.mine} picked so far`}
       </Body>
 
       {history.length ? (
         <>
           <SectionTitle
             action={
-              compared.length ? (
+              counts.compared ? (
                 <Text style={styles.score}>
-                  {matches} of {compared.length} match
+                  {counts.matches} of {counts.compared} match
                 </Text>
               ) : null
             }
@@ -99,7 +128,7 @@ export default function ThisOrThat() {
             Your picks
           </SectionTitle>
           <Card style={{ gap: 0, paddingVertical: space(2) }}>
-            {history.map((p, i) => {
+            {history.slice(0, historyShown).map((p, i) => {
               const me = picks[p.id].me!;
               const them = picks[p.id].partner;
               const label = (side: Side) => splitOption(side === 'a' ? p.a : p.b).text;
@@ -116,6 +145,9 @@ export default function ThisOrThat() {
               );
             })}
           </Card>
+          {history.length > historyShown ? (
+            <Button label="Show more" variant="ghost" onPress={() => setHistoryShown((n) => n + HISTORY_PAGE)} />
+          ) : null}
         </>
       ) : null}
     </Screen>

@@ -1,9 +1,10 @@
-import { useMemo } from 'react';
+import { useEffect, useMemo } from 'react';
 
 import { calendarMap, predict } from './cycle';
 import { diffDays, todayKey } from './dates';
 import { activeDays, dayProgress, restorableDay, restoresLeft, streakLength, weekStrip } from './streak';
 import { useStore } from './store';
+import { pairsOut } from './thisOrThat';
 
 export function useToday() {
   return todayKey();
@@ -58,4 +59,34 @@ export function useStreak() {
       restoresLeft: restorable ? restoresLeft(restores, restorable) : 0,
     };
   }, [answers, moments, moods, moodDays, restores, today]);
+}
+
+/**
+ * This or that counts, worked out from the picks alone so the home screen stays quick.
+ * The first time it's used it marks today as the day This or that began.
+ */
+export function usePickCounts() {
+  const { state, ready, update } = useStore();
+  const today = useToday();
+  const start = state.picksStart;
+  useEffect(() => {
+    if (ready && !start) update((s) => (s.picksStart ? s : { ...s, picksStart: today }));
+  }, [ready, start, today, update]);
+  const picks = state.picks;
+  return useMemo(() => {
+    const out = pairsOut(start, today);
+    let mine = 0;
+    let waiting = 0;
+    let compared = 0;
+    let matches = 0;
+    for (const p of Object.values(picks ?? {})) {
+      if (p.me) mine++;
+      if (p.partner && !p.me) waiting++;
+      if (p.me && p.partner) {
+        compared++;
+        if (p.me === p.partner) matches++;
+      }
+    }
+    return { out, mine, toPick: Math.max(0, out - mine), waiting, compared, matches };
+  }, [picks, start, today]);
 }

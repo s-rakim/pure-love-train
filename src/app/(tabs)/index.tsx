@@ -11,8 +11,7 @@ import { Body, Card, Chip, Eyebrow, Row, Screen, SectionTitle, Sheet, Title, tap
 import { celebrationsFor } from '../../lib/celebrate';
 import { phaseCopy } from '../../lib/cycle';
 import { diffDays, relativeTime, shortDate, toKey } from '../../lib/dates';
-import { useCycle, useDaysTogether, useNames, useStreak, useToday } from '../../lib/hooks';
-import { THIS_OR_THAT } from '../../lib/questions';
+import { useCycle, useDaysTogether, useNames, usePickCounts, useStreak, useToday } from '../../lib/hooks';
 import { newId, useStore, type Person } from '../../lib/store';
 import { makeStyles, radius, space, useTheme } from '../../theme';
 
@@ -98,8 +97,7 @@ export default function Home() {
 
   const nextIdea = state.dateIdeas.find((d) => !d.done)?.text;
   const couponsToRedeem = (state.coupons ?? []).filter((c) => c.from === 'partner' && !c.redeemedAt).length;
-  const picks = state.picks ?? {};
-  const picksWaiting = THIS_OR_THAT.filter((p) => picks[p.id]?.partner && !picks[p.id]?.me).length;
+  const pickCounts = usePickCounts();
   const sealedForMe = (state.letters ?? []).filter((l) => l.from === 'partner' && !l.openedAt).length;
   const nextDate = state.nextDate && state.nextDate.date >= today ? state.nextDate : undefined;
   const dateAway = nextDate ? diffDays(today, nextDate.date) : 0;
@@ -274,7 +272,13 @@ export default function Home() {
           color={colors.sky}
           tint={colors.skySoft}
           title="This or that"
-          subtitle={picksWaiting ? `${picksWaiting} waiting for you` : 'Pick a side, see if you match'}
+          subtitle={
+            pickCounts.waiting
+              ? `${pickCounts.waiting} waiting for you`
+              : pickCounts.toPick
+                ? `${pickCounts.toPick} to pick`
+                : 'Pick a side, see if you match'
+          }
           onPress={() => router.push('/this-or-that')}
         />
         <ActivityTile

@@ -66,10 +66,10 @@ export const DATE_IDEAS = [
 ];
 
 /**
- * This or that: quick pairs you each pick a side of, then see where you agree.
+ * This or that: the first pairs, from before the daily ones (see thisOrThat.ts).
  * Picks are saved under the id, so an id never changes once it's out there.
  */
-export const THIS_OR_THAT: { id: string; a: string; b: string }[] = [
+export const STARTER_PAIRS: { id: string; a: string; b: string }[] = [
   { id: 'night-in-out', a: '🛋️ Night in', b: '🍸 Night out' },
   { id: 'beach-mountains', a: '🏖️ Beach', b: '🏔️ Mountains' },
   { id: 'coffee-tea', a: '☕ Coffee', b: '🍵 Tea' },

@@ -16,6 +16,7 @@ import type { AppearancePref, FontPref } from '../theme';
 import type { CycleSettings, Period, SharedCycle } from './cycle';
 import type { DateKey } from './dates';
 import { DATE_IDEAS } from './questions';
+import { packPicks, PICKS_KEY, unpackPicks } from './picksStorage';
 
 export type Person = 'me' | 'partner';
 
@@ -142,6 +143,8 @@ export type State = {
   coupons: Coupon[];
   /** This or that: the side each of you chose, keyed by the pair's id. */
   picks: Record<string, Partial<Record<Person, Side>>>;
+  /** The day This or that began for you two; 50 more pairs come out each day after. */
+  picksStart?: DateKey;
   letters: Letter[];
   nextDate?: NextDate;
   /** Missed days you brought back with a streak restore (two a month), shared by you both. */
@@ -198,11 +201,12 @@ const secureToken = Platform.OS !== 'web';
 
 /** Reads what was last saved on this phone, filling in anything newer versions added. */
 export async function loadSavedState(): Promise<State | null> {
-  const raw = await AsyncStorage.getItem(STORAGE_KEY);
+  const [[, raw], [, packedPicks]] = await AsyncStorage.multiGet([STORAGE_KEY, PICKS_KEY]);
   if (!raw) return null;
   const saved = JSON.parse(raw) as Partial<State>;
   const base = initialState();
-  const state = { ...base, ...saved, cycle: { ...base.cycle, ...saved.cycle } };
+  let state: State = { ...base, ...saved, cycle: { ...base.cycle, ...saved.cycle } };
+  state = unpackPicks(state, packedPicks);
   if (secureToken && state.sync) {
     // Older versions saved the token with the rest; it moves on the next save.
     const token = state.sync.token || (await SecureStore.getItemAsync(TOKEN_KEY)) || '';
@@ -211,12 +215,17 @@ export async function loadSavedState(): Promise<State | null> {
   return state;
 }
 
-export async function saveState(state: State): Promise<void> {
-  if (!secureToken) return AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(state));
+export async function saveState(full: State): Promise<void> {
+  const { rest: state, packed } = packPicks(full);
+  const write = (s: State) =>
+    AsyncStorage.multiSet([
+      [STORAGE_KEY, JSON.stringify(s)],
+      [PICKS_KEY, packed],
+    ]);
+  if (!secureToken) return write(state);
   if (state.sync?.token) await SecureStore.setItemAsync(TOKEN_KEY, state.sync.token);
   else await SecureStore.deleteItemAsync(TOKEN_KEY);
-  const toSave = state.sync ? { ...state, sync: { ...state.sync, token: '' } } : state;
-  await AsyncStorage.setItem(STORAGE_KEY, JSON.stringify(toSave));
+  await write(state.sync ? { ...state, sync: { ...state.sync, token: '' } } : state);
 }
 
 type Store = {

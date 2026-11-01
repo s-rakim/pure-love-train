@@ -2,6 +2,7 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
+import { packPicks, unpackPicks } from '../picksStorage.ts';
 import type { State } from '../store';
 import { applyRecords, backupOf, fingerprint, isPrivateHttp, outgoingRecords, pendingChanges, type PulledRecord } from '../syncCore.ts';
 
@@ -121,6 +122,64 @@ describe('applying partner records', () => {
   it('keeps our anniversary when the partner has none', () => {
     const s = applyRecords(baseState(), [rec('couple', 'settings', { togetherSince: null })]);
     assert.equal(s.togetherSince, '2025-02-14');
+  });
+
+  it('runs This or that from whichever of us started first', () => {
+    const mine = { ...baseState(), picksStart: '2026-11-03' };
+    const earlier = applyRecords(mine, [rec('couple', 'picks', { start: '2026-11-01' })]);
+    assert.equal(earlier.picksStart, '2026-11-01');
+    assert.ok(!pendingChanges(earlier, '2026-11-03').some((c) => c.id === 'picks'), 'theirs is not echoed back');
+
+    const later = applyRecords({ ...mine, picksStart: '2026-11-01' }, [rec('couple', 'picks', { start: '2026-11-03' })]);
+    assert.equal(later.picksStart, '2026-11-01');
+    const sent = pendingChanges(later, '2026-11-03').find((c) => c.id === 'picks');
+    assert.deepEqual(sent?.data, { start: '2026-11-01' }, 'ours goes back so the partner moves to it');
+  });
+});
+
+describe('saving picks', () => {
+  it('packs picks and their sync fingerprints small and brings them back the same', () => {
+    let s: State = {
+      ...baseState(),
+      picks: { 'coffee-tea': { me: 'a', partner: 'b' }, x0: { me: 'b' }, x1: { partner: 'a' } },
+    };
+    // Pushing marks our picks as sent, which is the part that grows fastest.
+    s = { ...s, sync: { ...s.sync!, pushed: { 'note:n1': 'x' } } };
+    for (const c of pendingChanges(s, '2026-10-13')) {
+      if (c.kind === 'pick') s.sync!.pushed[`${c.kind}:${c.id}`] = fingerprint(c.data);
+    }
+    const { rest, packed } = packPicks(s);
+    assert.deepEqual(rest.picks, {});
+    assert.deepEqual(rest.sync!.pushed, { 'note:n1': 'x' });
+    assert.ok(packed.length < 120, packed);
+    const back = unpackPicks(rest, packed);
+    assert.deepEqual(back.picks, s.picks);
+    assert.deepEqual(back.sync!.pushed, s.sync!.pushed);
+    assert.ok(!pendingChanges(back, '2026-10-13').some((c) => c.kind === 'pick'), 'nothing is sent again');
+  });
+
+  it('keeps picks saved the old way and ignores a broken entry', () => {
+    const old: State = { ...baseState(), picks: { 'coffee-tea': { me: 'a' } } };
+    assert.deepEqual(unpackPicks(old, null).picks, old.picks);
+    assert.deepEqual(unpackPicks(old, 'not json').picks, old.picks);
+    // Fingerprints saved for another member (an earlier space) are left behind.
+    const other = unpackPicks(old, JSON.stringify({ member: 'someone-else', picks: 'x0=a-', pushed: 'x0=a' }));
+    assert.deepEqual(other.picks, { 'coffee-tea': { me: 'a' }, x0: { me: 'a' } });
+    assert.deepEqual(other.sync!.pushed, {});
+  });
+
+  it('stays small with two years of picks', () => {
+    const picks: State['picks'] = {};
+    const pushed: Record<string, string> = {};
+    for (let i = 0; i < 36_500; i++) {
+      const pair = `x${i.toString(36)}`;
+      picks[pair] = { me: 'a', partner: 'b' };
+      pushed[`pick:${ME}:${pair}`] = fingerprint({ pair, choice: 'a' });
+    }
+    const s: State = { ...baseState(), picks, sync: { ...baseState().sync!, pushed } };
+    const { rest, packed } = packPicks(s);
+    assert.ok(packed.length < 700_000, `${packed.length} characters`);
+    assert.ok(JSON.stringify(rest).length < 5_000);
   });
 });
 

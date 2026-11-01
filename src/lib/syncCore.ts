@@ -1,5 +1,6 @@
 import { normalize, predict } from './cycle.ts';
 import { todayKey, type DateKey } from './dates.ts';
+import { earlierStart } from './thisOrThat.ts';
 import type { Coupon, Letter, Moment, Note, PartnerCycle, Person, State } from './store';
 
 /** A record as the sync server stores it. */
@@ -88,6 +89,7 @@ export function outgoingRecords(s: State, today: DateKey = todayKey()): Map<stri
   add('couple', 'settings', { togetherSince: s.togetherSince ?? null });
   if (s.nextDate) add('couple', 'next', { date: s.nextDate.date, label: s.nextDate.label });
   if (s.restores?.length) add('couple', 'restores', { days: [...s.restores].sort() });
+  if (s.picksStart) add('couple', 'picks', { start: s.picksStart });
   for (const d of s.dateIdeas) add('dateIdea', d.id, { text: d.text, done: d.done });
   for (const c of s.coupons ?? []) {
     // Either of you may update a coupon (the giver writes it, the other redeems it), so the
@@ -256,6 +258,13 @@ export function applyRecords(
         if (r.id === 'restores') {
           const days = new Set<DateKey>([...(next.restores ?? []), ...(data?.days ?? [])]);
           next = { ...next, restores: [...days].sort() };
+          break;
+        }
+        if (r.id === 'picks') {
+          // This or that runs from whichever of you started first, so you both get the same pairs.
+          const start = earlierStart(next.picksStart, data?.start);
+          next = { ...next, picksStart: start };
+          if (start !== data?.start) delete pushed[key];
           break;
         }
         if (r.id === 'next') {
