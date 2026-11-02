@@ -257,22 +257,37 @@ export async function pull(start: SyncState, update: Update) {
   }
 }
 
-/** When to ask again for a day's content after the server couldn't give it (an older server). */
+/** When to ask again for a day's content after the server couldn't give it (offline, or an older server). */
 let contentRetryAt = 0;
-const CONTENT_RETRY_MS = 10 * 60_000;
+const CONTENT_RETRY_MS = 2 * 60_000;
+/** Which space and day the question on screen last came from the server for, and when. */
+let contentChecked = { key: '', at: 0 };
+const CONTENT_REFRESH_MS = 30 * 60_000;
 
-/** Fetches today's question and this fortnight's date ideas from the server, once a day. */
+/**
+ * Fetches today's question and this fortnight's date ideas from the server.
+ * The server picks the question from your shared space, so both of you get the
+ * same one. It's asked again on each app start, after moving to another space,
+ * and every half hour, so a question saved earlier (from an old space, or the
+ * built-in one shown while the server couldn't be reached) is replaced.
+ */
 async function fetchContent(start: SyncState, getState: () => State, update: Update) {
   const today = todayKey();
-  if (getState().questions?.[today] || Date.now() < contentRetryAt) return;
+  const key = `${start.memberId}:${today}`;
+  const fresh = contentChecked.key === key && Date.now() - contentChecked.at < CONTENT_REFRESH_MS;
+  if ((fresh && getState().questions?.[today]) || Date.now() < contentRetryAt) return;
   try {
     const content = await request<{ question: { text: string }; dateIdeas: string[] }>(start, `/api/content?date=${today}`);
-    update((s) => ({
-      ...s,
-      // The last 400 days are plenty for the past questions list.
-      questions: Object.fromEntries(Object.entries({ ...s.questions, [today]: content.question.text }).sort().slice(-400)),
-      freshIdeas: content.dateIdeas,
-    }));
+    contentChecked = { key, at: Date.now() };
+    update((s) => {
+      if (!s.sync || s.sync.token !== start.token) return s;
+      return {
+        ...s,
+        // The last 400 days are plenty for the past questions list.
+        questions: Object.fromEntries(Object.entries({ ...s.questions, [today]: content.question.text }).sort().slice(-400)),
+        freshIdeas: content.dateIdeas,
+      };
+    });
   } catch {
     // Servers before 1.6 don't have it; the built-in questions fill in until it's rebuilt.
     contentRetryAt = Date.now() + CONTENT_RETRY_MS;
@@ -284,8 +299,10 @@ async function runSync(getState: () => State, update: Update) {
   if (!start) return;
 
   try {
-    await pull(start, update);
+    // Today's question comes first, so a sync problem elsewhere can't leave
+    // this phone on a different question from your partner's.
     await fetchContent(start, getState, update);
+    await pull(start, update);
 
     // Upload photos and videos for moments taken on this phone.
     // One that fails stays on this phone and is retried next round; it
