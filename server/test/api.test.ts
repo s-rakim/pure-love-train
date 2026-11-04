@@ -37,6 +37,9 @@ before(async () => {
       verifyFirebase,
       signInAttempts: 1000,
       maxCouples: 1000,
+      spacesPerAddressPerDay: 1000,
+      requestsPerAddress: 100_000,
+      requestsPerPhone: 100_000,
     }),
   );
   await new Promise<void>((resolve) => server.listen(0, resolve));
@@ -420,7 +423,9 @@ describe('limits', () => {
   let dir: string;
   before(async () => {
     dir = mkdtempSync(join(tmpdir(), 'pure-love-limits-'));
-    small = createServer(createApp(openDb(join(dir, 'test.db')), dir, { maxCouples: 2, storageLimitBytes: 10 }));
+    small = createServer(
+      createApp(openDb(join(dir, 'test.db')), dir, { maxCouples: 3, storageLimitBytes: 10, spacesPerAddressPerDay: 2, requestsPerPhone: 5 }),
+    );
     await new Promise<void>((resolve) => small.listen(0, resolve));
     url = `http://127.0.0.1:${(small.address() as AddressInfo).port}`;
   });
@@ -434,7 +439,7 @@ describe('limits', () => {
   it('caps the number of spaces and the room each one has', async () => {
     const first = await (await post('/api/couples', { name: 'A' })).json();
     assert.equal((await post('/api/couples', { name: 'B' })).status, 201);
-    assert.equal((await post('/api/couples', { name: 'C' })).status, 403);
+    assert.equal((await post('/api/couples', { name: 'C' })).status, 429, 'one address starts only so many spaces a day');
     const bytes = new Uint8Array(20);
     const big = await post('/api/photos', bytes, { authorization: `Bearer ${first.token}`, 'content-type': 'image/jpeg' });
     assert.equal(big.status, 507);
@@ -452,6 +457,12 @@ describe('limits', () => {
       duplex: 'half',
     } as RequestInit);
     assert.equal(sneaky.status, 507);
+
+    let status = 0;
+    for (let i = 0; i < 6 && status !== 429; i++) {
+      status = (await fetch(url + '/api/me', { headers: { authorization: `Bearer ${first.token}` } })).status;
+    }
+    assert.equal(status, 429, 'one phone sending too much is slowed down');
   });
 
   it('stops guessing pairing codes', async () => {

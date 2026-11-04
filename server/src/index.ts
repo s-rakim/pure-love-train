@@ -21,12 +21,19 @@ const server = createServer(
     storageLimitBytes: Number(process.env.STORAGE_LIMIT_GB) * 1e9 || undefined,
     // Set when Caddy (or another reverse proxy) sits in front, so limits count each caller.
     trustProxy: process.env.TRUST_PROXY === '1',
+    // Requests a minute from one address and from one phone, and new spaces per address a day.
+    requestsPerAddress: Number(process.env.REQUESTS_PER_MINUTE) || undefined,
+    spacesPerAddressPerDay: Number(process.env.SPACES_PER_ADDRESS_PER_DAY) || undefined,
   }),
 );
 
 // Slow or stalled requests shouldn't hold connections open for long.
 server.headersTimeout = 20_000;
 server.requestTimeout = 10 * 60_000;
+server.keepAliveTimeout = 5_000;
+server.maxConnections = Number(process.env.MAX_CONNECTIONS) || 2_000;
+// Bad or half-open connections are dropped instead of left hanging.
+server.on('clientError', (_err, socket) => socket.destroy());
 
 server.listen(port, () => {
   console.log(`Pure Love sync server listening on port ${port}, data in ${dataDir}`);

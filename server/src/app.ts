@@ -1,5 +1,5 @@
 import { createHash, createPublicKey, randomBytes, randomUUID, verify, type JsonWebKey } from 'node:crypto';
-import { createReadStream, createWriteStream, mkdirSync, rmSync, statSync } from 'node:fs';
+import { createReadStream, createWriteStream, mkdirSync, rmSync, statSync, statfsSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
@@ -20,6 +20,34 @@ const PHOTO_TYPES = /^image\/(jpeg|png|webp|heic|heif|gif)$/;
 const VIDEO_TYPES = /^video\/(mp4|quicktime|3gpp|webm)$/;
 const MAX_RECORD_BYTES = 20_000;
 const PAGE_SIZE = 500;
+const MAX_BACKUP_BYTES = 300_000;
+/** A space that nobody joined and nothing was written to is removed after this long. */
+const UNUSED_SPACE_MS = 7 * 24 * 60 * 60_000;
+/** Uploads stop while the server's disk has less than this free. */
+const MIN_FREE_DISK_BYTES = 2_000_000_000;
+
+/** Counts hits per key in a fixed one-minute (or `windowMs`) window. */
+class Limiter {
+  private hits = new Map<string, { count: number; resetAt: number }>();
+  private max: number;
+  private windowMs: number;
+  constructor(max: number, windowMs = 60_000) {
+    this.max = max;
+    this.windowMs = windowMs;
+  }
+  /** True when `key` is over its limit for this window. */
+  over(key: string): boolean {
+    const nowMs = Date.now();
+    const entry = this.hits.get(key);
+    if (!entry || entry.resetAt <= nowMs) {
+      if (this.hits.size > 50_000) this.hits.clear();
+      this.hits.set(key, { count: 1, resetAt: nowMs + this.windowMs });
+      return this.max < 1;
+    }
+    entry.count += 1;
+    return entry.count > this.max;
+  }
+}
 /** A pairing code that nobody has used for this long is swapped for a new one. */
 const PAIR_CODE_MS = 24 * 60 * 60_000;
 /** A phone that hasn't been heard from for this long has to sign in again. */
@@ -60,6 +88,14 @@ export type AppOptions = {
   signInAttemptsTotal?: number;
   /** Behind a reverse proxy (like Caddy): take the caller's address from X-Forwarded-For. */
   trustProxy?: boolean;
+  /** Requests a minute from one address, for everything. */
+  requestsPerAddress?: number;
+  /** Requests a minute from one signed-in phone. */
+  requestsPerPhone?: number;
+  /** New spaces one address may start in a day. */
+  spacesPerAddressPerDay?: number;
+  /** Records each space may hold. */
+  maxRecordsPerSpace?: number;
   /** Checks a Google ID token; swapped out in tests. */
   verifyGoogle?: (idToken: string, clientId: string) => Promise<GoogleIdentity>;
   /** The Firebase project whose email and password sign-ins this server trusts. */
@@ -262,6 +298,10 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
   const signInAttempts = options.signInAttempts ?? 10;
   const signInAttemptsTotal = options.signInAttemptsTotal ?? Math.max(signInAttempts, 300);
   const trustProxy = options.trustProxy ?? false;
+  const perAddress = new Limiter(options.requestsPerAddress ?? 600);
+  const perPhone = new Limiter(options.requestsPerPhone ?? 300);
+  const spacesPerAddress = new Limiter(options.spacesPerAddressPerDay ?? 5, 24 * 60 * 60_000);
+  const maxRecords = options.maxRecordsPerSpace ?? 100_000;
   const photoDir = join(dataDir, 'photos');
   mkdirSync(photoDir, { recursive: true });
 
@@ -333,6 +373,12 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
   const photosOfMember = db.prepare('SELECT id FROM photos WHERE member_id = ?');
   const photosOfCouple = db.prepare('SELECT id FROM photos WHERE couple_id = ?');
   const storageUsed = db.prepare('SELECT coalesce(sum(size), 0) AS bytes FROM photos WHERE couple_id = ?');
+  const countRecords = db.prepare('SELECT COUNT(*) AS n FROM records WHERE couple_id = ?');
+  const unusedSpaces = db.prepare(`
+    SELECT c.id FROM couples c WHERE c.created_at < ?
+      AND (SELECT COUNT(*) FROM members m WHERE m.couple_id = c.id) < 2
+      AND NOT EXISTS (SELECT 1 FROM records r WHERE r.couple_id = c.id)
+  `);
 
   // A few tries a minute is plenty for people; it stops anyone guessing pairing codes.
   const attempts = new Map<string, { count: number; resetAt: number }>();
@@ -381,6 +427,7 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
       const revoked = hash ? (findRevoked.get(hash) as { reason: string } | undefined) : undefined;
       throw new HttpError(401, revoked?.reason ?? 'Not signed in');
     }
+    if (perPhone.over(hash)) throw new HttpError(429, 'Too many requests from this phone. Wait a minute.');
     // Note the day each phone was last seen, so phones gone quiet for months can be signed out.
     const stamp = now();
     if (!found.last_used_at || found.last_used_at.slice(0, 10) !== stamp.slice(0, 10)) touchToken.run(stamp, hash);
@@ -441,6 +488,7 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
     const name = cleanName(body.name);
     const { n: couples } = countCouples.get() as { n: number };
     if (couples >= maxCouples) throw new HttpError(403, 'This server is full. Raise MAX_SPACES on the server to add more.');
+    if (spacesPerAddress.over(clientAddress(req))) throw new HttpError(429, "You've started enough spaces for today. Try again tomorrow.");
     const coupleId = randomUUID();
     const code = freshPairCode();
     insertCouple.run(coupleId, code, now(), now());
@@ -486,6 +534,7 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
     if (!Array.isArray(body.records)) throw new HttpError(400, 'records must be a list');
 
     const results: { kind: string; id: string; ok: boolean; seq?: number; error?: string }[] = [];
+    let stored = (countRecords.get(member.couple_id) as { n: number }).n;
     db.exec('BEGIN');
     try {
       for (const r of body.records) {
@@ -497,6 +546,11 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
         }
         const existing = getRecord.get(member.couple_id, kind, id) as { author: string; data: string | null } | undefined;
         const deleted = r.deleted === true;
+        if (!existing && stored >= maxRecords) {
+          results.push({ kind, id, ok: false, error: 'Your space is full' });
+          continue;
+        }
+        if (!existing) stored += 1;
         const refusal = checkWrite(member, kind, id, existing, deleted, r.data);
         if (refusal) {
           results.push({ kind, id, ok: false, error: refusal });
@@ -726,7 +780,9 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
     const member = authenticate(req);
     const body = await readJson(req);
     if (!body.data || typeof body.data !== 'object') throw new HttpError(400, 'data must be an object');
-    upsertBackup.run(member.id, JSON.stringify(body.data), now());
+    const data = JSON.stringify(body.data);
+    if (data.length > MAX_BACKUP_BYTES) throw new HttpError(413, 'That backup is too large');
+    upsertBackup.run(member.id, data, now());
     send(res, 200, { ok: true });
   }
 
@@ -736,6 +792,7 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
     const mime = String(req.headers['content-type'] ?? '').split(';')[0].trim();
     const limit = PHOTO_TYPES.test(mime) ? MAX_PHOTO_BYTES : VIDEO_TYPES.test(mime) ? MAX_VIDEO_BYTES : 0;
     if (!limit) throw new HttpError(415, 'Only photos and videos are accepted');
+    if (diskFree() < MIN_FREE_DISK_BYTES) throw new HttpError(507, 'The server is out of room right now. Try again later.');
     const { bytes } = storageUsed.get(member.couple_id) as { bytes: number };
     const declared = Number(req.headers['content-length'] ?? 0);
     if (bytes + declared > storageLimit) {
@@ -791,13 +848,28 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
     createReadStream(path).pipe(res);
   }
 
+  function diskFree(): number {
+    try {
+      const fs = statfsSync(photoDir);
+      return fs.bavail * fs.bsize;
+    } catch {
+      return Infinity;
+    }
+  }
+
   // Phones that haven't synced for months are signed out; they can pair or restore again.
+  // Spaces nobody joined and nothing was written to are cleared away, so they can't fill the server.
   const sweepIdle = () => {
     deleteIdleTokens.run(new Date(Date.now() - TOKEN_IDLE_MS).toISOString());
     deleteOldRevoked.run(new Date(Date.now() - REVOKED_KEEP_MS).toISOString());
+    for (const { id } of unusedSpaces.all(new Date(Date.now() - UNUSED_SPACE_MS).toISOString()) as { id: string }[]) {
+      const files = (photosOfCouple.all(id) as { id: string }[]).map((p) => p.id);
+      deleteCouple.run(id);
+      for (const f of files) removeFile(f);
+    }
   };
   sweepIdle();
-  setInterval(sweepIdle, 24 * 60 * 60_000).unref();
+  setInterval(sweepIdle, 6 * 60 * 60_000).unref();
 
   return async function handle(req: IncomingMessage, res: ServerResponse) {
     const url = new URL(req.url ?? '/', 'http://local');
@@ -805,6 +877,11 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
     if (req.method === 'OPTIONS') {
       res.writeHead(204, CORS);
       return res.end();
+    }
+    if (perAddress.over(clientAddress(req))) {
+      res.setHeader('retry-after', '60');
+      send(res, 429, { error: 'Too many requests. Wait a minute and try again.' });
+      return req.resume();
     }
     try {
       if (route === 'GET /health') return send(res, 200, { ok: true });
