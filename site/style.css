@@ -22,3 +22,7 @@ a { color: var(--flame); }
 .muted { font-size: 14px; }
 .card { background: var(--surface); border: 1px solid var(--line); border-radius: 16px; padding: 20px; margin: 24px 0; }
 nav { margin-top: 48px; padding-top: 20px; border-top: 1px solid var(--line); display: flex; gap: 20px; flex-wrap: wrap; font-size: 15px; }
+.shots { display: flex; gap: 14px; overflow-x: auto; scroll-snap-type: x mandatory; margin: 28px -20px; padding: 4px 20px 12px; }
+.shots figure { flex: 0 0 200px; margin: 0; scroll-snap-align: start; text-align: center; }
+.shots img { width: 100%; height: auto; border-radius: 20px; border: 1px solid var(--line); display: block; }
+.shots figcaption { margin-top: 8px; font-size: 14px; color: var(--soft); }
