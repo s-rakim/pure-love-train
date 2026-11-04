@@ -110,7 +110,12 @@ export function outgoingRecords(s: State, today: DateKey = todayKey()): Map<stri
  * saved privately on the server under your account so a new phone can get it back.
  * Everything else comes back from the shared records.
  */
-export type Backup = Pick<State, 'names' | 'cycle'> & { togetherSince: DateKey | null; appearance: string; font?: string };
+export type Backup = Pick<State, 'names' | 'cycle'> & {
+  togetherSince: DateKey | null;
+  appearance: string;
+  font?: string;
+  theme?: string;
+};
 
 export function backupOf(s: State): Backup {
   return {
@@ -119,6 +124,7 @@ export function backupOf(s: State): Backup {
     cycle: s.cycle,
     appearance: s.appearance ?? 'system',
     font: s.font ?? 'phone',
+    theme: s.theme ?? 'candle',
   };
 }
 

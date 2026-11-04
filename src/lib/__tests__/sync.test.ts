@@ -333,7 +333,7 @@ describe('restoring on a new phone', () => {
 
   it('backs up only what never leaves the phone otherwise', () => {
     const backup = backupOf(baseState());
-    assert.deepEqual(Object.keys(backup).sort(), ['appearance', 'cycle', 'font', 'names', 'togetherSince']);
+    assert.deepEqual(Object.keys(backup).sort(), ['appearance', 'cycle', 'font', 'names', 'theme', 'togetherSince']);
     assert.equal(backup.cycle.logs['2026-10-02'].note, 'private');
   });
 });

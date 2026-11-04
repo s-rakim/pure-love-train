@@ -1,4 +1,4 @@
-import type { AppearancePref, FontPref } from '../theme';
+import type { AppearancePref, FontPref, ThemeName } from '../theme';
 import { emailIdToken } from './firebase';
 import { googleIdToken } from './google';
 import { initialState, type Account, type State, type SyncState } from './store';
@@ -114,6 +114,7 @@ export function restoredState(serverUrl: string, session: Restored): State {
     cycle: backup?.cycle ? { ...base.cycle, ...backup.cycle } : base.cycle,
     appearance: (backup?.appearance as AppearancePref | undefined) ?? undefined,
     font: (backup?.font as FontPref | undefined) ?? undefined,
+    theme: (backup?.theme as ThemeName | undefined) ?? undefined,
     // Date ideas and coupons are shared, so they come back with everything else.
     dateIdeas: [],
     account: session.email ? { email: session.email, provider: session.provider ?? 'google' } : undefined,

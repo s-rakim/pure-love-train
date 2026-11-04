@@ -33,7 +33,7 @@ phone A  ⇄  your server (Docker, Tailscale)  ⇄  phone B
 | Syncing: talking to the server, photos, videos | `src/lib/sync.ts`, run every 15 seconds by `src/components/SyncAgent.tsx` |
 | Notifications | `src/lib/notify.ts`, `src/lib/news.ts`, `src/lib/background.ts`, `src/components/NotifyAgent.tsx` |
 | Android widget | `src/widget/` (drawn by `render.tsx`, refreshed by `taskHandler.tsx`) |
-| Colours and fonts | `src/theme/index.ts` |
+| Colours, themes and fonts | `src/theme/index.ts` (fonts load in `src/app/_layout.tsx`) |
 | App name, version, icon, plugins | `app.json` |
 | Server code | `server/src/app.ts` (all the routes), `server/src/db.ts` (tables) |
 | Daily questions and date ideas | `server/src/content/questions.txt`, `server/src/content/date-ideas.txt` |
@@ -122,6 +122,7 @@ To add a new kind you must add it in three places: `OWNED_KINDS` or `SHARED_KIND
 - **Streak.** A day counts only when both of you answered the question, sent a moment and shared a mood (`activeDays` in `src/lib/streak.ts`). Missing a day resets it to 0. If you missed only yesterday, Home offers **Restore your streak**: two free a month, shared by you both (the `couple` record with id `restores`).
 - **View-once moments.** Tick **View once** before sending. Your partner sees a locked tile in History, never on the widget or Home. When they open it, the app marks it opened (a `seen` record), deletes the file from their phone when they close it, and your phone then removes the photo or video from the server. Both of you are left with an "Opened" tile.
 - **Celebrations.** Home shows a card on your anniversary (from **Together since**), every 100 days together, and on birthdays (set yours in **Settings**; your partner's comes from their phone).
+- **Themes and fonts.** **Settings → Appearance** picks the theme (Candle, Lilac, Lavender or Misty, each with a light and a dark version in `themes`) and the font. Fonts come from `@expo-google-fonts` packages (open font licence, fine inside an app) and load in `src/app/_layout.tsx`; Great Vibes and Bebas Neue only change titles and your name (`fonts.title`). A new theme needs every colour in `Palette` for both light and dark. New fonts and themes go out over the air, since they're only JavaScript and font files.
 - **Notifications.** These are local notifications, not cloud push. Every 15 to 30 minutes Android wakes the app in the background (`src/lib/background.ts`), checks your server and posts a notification for each new moment, note, letter, mood or answer from your partner (`src/lib/news.ts` decides what counts). At 8pm you get a nudge if your three aren't done. They can be turned off in **Settings → Notifications**. Instant push would need Firebase, which would mean a Google cloud account.
 
 ## When something breaks

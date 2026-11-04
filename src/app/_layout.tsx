@@ -1,6 +1,11 @@
 import { DMSans_400Regular } from '@expo-google-fonts/dm-sans/400Regular';
 import { DMSans_500Medium } from '@expo-google-fonts/dm-sans/500Medium';
 import { DMSans_700Bold } from '@expo-google-fonts/dm-sans/700Bold';
+import { BebasNeue_400Regular } from '@expo-google-fonts/bebas-neue/400Regular';
+import { GreatVibes_400Regular } from '@expo-google-fonts/great-vibes/400Regular';
+import { Quicksand_500Medium } from '@expo-google-fonts/quicksand/500Medium';
+import { Quicksand_600SemiBold } from '@expo-google-fonts/quicksand/600SemiBold';
+import { Quicksand_700Bold } from '@expo-google-fonts/quicksand/700Bold';
 import { useFonts } from 'expo-font';
 import { Stack } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
@@ -22,6 +27,11 @@ export default function RootLayout() {
     DMSans_400Regular,
     DMSans_500Medium,
     DMSans_700Bold,
+    GreatVibes_400Regular,
+    Quicksand_500Medium,
+    Quicksand_600SemiBold,
+    Quicksand_700Bold,
+    BebasNeue_400Regular,
   });
 
   return (

@@ -2,7 +2,7 @@ import { Ionicons } from '@expo/vector-icons';
 import Constants from 'expo-constants';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Alert, Platform, Pressable, Text, View } from 'react-native';
+import { Alert, Platform, Pressable, Text, View, type TextStyle } from 'react-native';
 
 import { AccountCard } from '../components/AccountCard';
 import { PairingCard } from '../components/PairingCard';
@@ -11,7 +11,7 @@ import { Body, Button, Card, Chip, Eyebrow, Field, Row, Screen, Wordmark } from 
 import { isValidKey } from '../lib/dates';
 import { useStore } from '../lib/store';
 import { leaveSpace } from '../lib/sync';
-import { type AppearancePref, type FontPref, makeStyles, radius, space, useTheme } from '../theme';
+import { type AppearancePref, type FontPref, makeStyles, radius, space, type ThemeName, themes, useTheme } from '../theme';
 
 const APPEARANCES: { value: AppearancePref; label: string }[] = [
   { value: 'system', label: 'System' },
@@ -19,13 +19,25 @@ const APPEARANCES: { value: AppearancePref; label: string }[] = [
   { value: 'dark', label: 'Dark' },
 ];
 
-const FONTS: { value: FontPref; label: string }[] = [
-  { value: 'phone', label: "My phone's font" },
-  { value: 'classic', label: 'DM Sans' },
+// Each font's chip is written in that font, so you can see it before picking.
+const FONTS: { value: FontPref; label: string; preview?: TextStyle }[] = [
+  { value: 'phone', label: "My phone's font", preview: { fontFamily: undefined } },
+  { value: 'classic', label: 'DM Sans', preview: { fontFamily: 'DMSans_500Medium' } },
+  { value: 'script', label: 'Great Vibes', preview: { fontFamily: 'GreatVibes_400Regular', fontWeight: '400', fontSize: 19 } },
+  { value: 'rounded', label: 'Quicksand', preview: { fontFamily: 'Quicksand_600SemiBold' } },
+  { value: 'bebas', label: 'Bebas Neue', preview: { fontFamily: 'BebasNeue_400Regular', fontWeight: '400', fontSize: 17, letterSpacing: 0.6 } },
+];
+
+const THEMES: { value: ThemeName; label: string }[] = [
+  { value: 'candle', label: 'Candle' },
+  { value: 'lilac', label: 'Lilac' },
+  { value: 'lavender', label: 'Lavender' },
+  { value: 'misty', label: 'Misty' },
 ];
 
 export default function Settings() {
   const { colors } = useTheme();
+  const styles = useStyles();
   const { state, update, reset } = useStore();
   const [me, setMe] = useState(state.names.me);
   const [partner, setPartner] = useState(state.names.partner);
@@ -144,19 +156,34 @@ export default function Settings() {
         <Body muted style={{ fontSize: 13 }}>
           System follows your phone's light or dark setting.
         </Body>
+        <Eyebrow>Theme</Eyebrow>
+        <View style={styles.themes}>
+          {THEMES.map((t) => (
+            <ThemeSwatch
+              key={t.value}
+              name={t.value}
+              label={t.label}
+              selected={(state.theme ?? 'candle') === t.value}
+              onPress={() => update((s) => ({ ...s, theme: t.value }))}
+            />
+          ))}
+        </View>
+        <Body muted style={{ fontSize: 13 }}>Each theme has a light and a dark version, following the setting above.</Body>
         <Eyebrow>Font</Eyebrow>
-        <Row>
+        <View style={styles.wrap}>
           {FONTS.map((f) => (
             <Chip
               key={f.value}
               label={f.label}
+              labelStyle={f.preview}
               selected={(state.font ?? 'phone') === f.value}
               onPress={() => update((s) => ({ ...s, font: f.value }))}
             />
           ))}
-        </Row>
+        </View>
         <Body muted style={{ fontSize: 13 }}>
-          Your phone's font is whatever you've picked in your phone's settings, the same as on your home screen.
+          Your phone's font is whatever you've picked in your phone's settings, the same as on your home screen. Great
+          Vibes and Bebas Neue are for titles and your name; everything else stays in your phone's font.
         </Body>
         {Platform.OS === 'android' ? (
           <>
@@ -257,6 +284,21 @@ function Stepper({ label, value, onChange }: { label: string; value: number; onC
 }
 
 const useStyles = makeStyles((colors, fonts) => ({
+  themes: { flexDirection: 'row', flexWrap: 'wrap', gap: space(3) },
+  wrap: { flexDirection: 'row', flexWrap: 'wrap', gap: space(2) },
+  swatch: { width: '47%', flexGrow: 1, borderWidth: 2, borderRadius: radius.md, padding: space(1.5), gap: space(1.5) },
+  swatchPreview: { height: 56, borderRadius: radius.sm, padding: space(2.5), justifyContent: 'center' },
+  swatchCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: space(1.5),
+    borderRadius: 8,
+    borderWidth: 1,
+    paddingHorizontal: space(2.5),
+    paddingVertical: space(2),
+  },
+  swatchDot: { width: 12, height: 12, borderRadius: 6 },
+  swatchLabel: { ...fonts.bodyBold, fontSize: 14, color: colors.inkSoft, textAlign: 'center' },
   step: {
     width: 34,
     height: 34,
@@ -267,3 +309,39 @@ const useStyles = makeStyles((colors, fonts) => ({
   },
   stepValue: { ...fonts.bodyBold, fontSize: 15, color: colors.ink, minWidth: 64, textAlign: 'center' },
 }));
+
+/** A small preview of a theme: its background, a card and its accents, in the current light or dark. */
+function ThemeSwatch({
+  name,
+  label,
+  selected,
+  onPress,
+}: {
+  name: ThemeName;
+  label: string;
+  selected: boolean;
+  onPress: () => void;
+}) {
+  const { scheme, colors } = useTheme();
+  const styles = useStyles();
+  const c = themes[name][scheme];
+  return (
+    <Pressable
+      accessibilityRole="button"
+      accessibilityLabel={`${label} theme`}
+      accessibilityState={{ selected }}
+      onPress={onPress}
+      style={[styles.swatch, { borderColor: selected ? colors.flame : colors.line }]}
+    >
+      <View style={[styles.swatchPreview, { backgroundColor: c.background }]}>
+        <View style={[styles.swatchCard, { backgroundColor: c.surface, borderColor: c.line }]}>
+          <View style={[styles.swatchDot, { backgroundColor: c.flame }]} />
+          <View style={[styles.swatchDot, { backgroundColor: c.plum }]} />
+          <View style={[styles.swatchDot, { backgroundColor: c.sky }]} />
+          <View style={[styles.swatchDot, { backgroundColor: c.rose }]} />
+        </View>
+      </View>
+      <Text style={[styles.swatchLabel, selected && { color: colors.ink }]}>{label}</Text>
+    </Pressable>
+  );
+}

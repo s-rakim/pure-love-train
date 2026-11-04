@@ -191,11 +191,14 @@ export function Chip({
   selected,
   onPress,
   color: tint,
+  labelStyle,
 }: {
   label: string;
   selected?: boolean;
   onPress?: () => void;
   color?: string;
+  /** Extra label styling, such as a font picker writing each name in its own font. */
+  labelStyle?: StyleProp<TextStyle>;
 }) {
   const { colors } = useTheme();
   const styles = useStyles();
@@ -213,7 +216,7 @@ export function Chip({
         selected ? { backgroundColor: color, borderColor: color } : { borderColor: colors.line },
       ]}
     >
-      <Text style={[styles.chipLabel, { color: selected ? textOn(color) : colors.inkSoft }]}>{label}</Text>
+      <Text style={[styles.chipLabel, labelStyle, { color: selected ? textOn(color) : colors.inkSoft }]}>{label}</Text>
     </Pressable>
   );
 }
@@ -260,7 +263,7 @@ const useStyles = makeStyles((colors, fonts) => ({
   screen: { flex: 1, backgroundColor: colors.background },
   glow: { position: 'absolute', top: 0, left: 0, right: 0, height: 360 },
   scrollContent: { padding: space(5), gap: space(4) },
-  title: { ...fonts.display, fontSize: 30, color: colors.ink, letterSpacing: -0.8 },
+  title: { ...fonts.display, fontSize: 30, color: colors.ink, letterSpacing: -0.8, ...fonts.title },
   heading: { ...fonts.display, fontSize: 20, color: colors.ink, letterSpacing: -0.4 },
   body: { ...fonts.body, fontSize: 15, lineHeight: 22, color: colors.inkSoft },
   eyebrow: { ...fonts.bodyBold, fontSize: 12, letterSpacing: 1.2, textTransform: 'uppercase' },

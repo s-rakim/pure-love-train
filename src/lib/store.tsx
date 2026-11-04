@@ -12,7 +12,7 @@ import {
   type ReactNode,
 } from 'react';
 
-import type { AppearancePref, FontPref } from '../theme';
+import type { AppearancePref, FontPref, ThemeName } from '../theme';
 import type { CycleSettings, Period, SharedCycle } from './cycle';
 import type { DateKey } from './dates';
 import { DATE_IDEAS } from './questions';
@@ -163,8 +163,10 @@ export type State = {
   sync?: SyncState;
   /** Light, dark or follow the phone. Stays on this phone and never syncs. */
   appearance?: AppearancePref;
-  /** The phone's own font (the default) or DM Sans. Stays on this phone too. */
+  /** The phone's own font (the default), DM Sans, Quicksand, or script or poster titles. Stays on this phone too. */
   font?: FontPref;
+  /** Candle (the default) or one of the lilac looks. Stays on this phone too. */
+  theme?: ThemeName;
   /** Hide the photo on the home screen widget and just say a moment arrived. Stays on this phone. */
   widgetPrivate?: boolean;
   account?: Account;
@@ -263,7 +265,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const update = useCallback((fn: (s: State) => State) => setState(fn), []);
   // Erasing data keeps the chosen look; it isn't part of what you two shared.
-  const reset = useCallback(() => setState((s) => ({ ...initialState(), appearance: s.appearance, font: s.font })), []);
+  const reset = useCallback(() => setState((s) => ({ ...initialState(), appearance: s.appearance, font: s.font, theme: s.theme })), []);
 
   const value = useMemo(() => ({ state, ready, update, reset }), [state, ready, update, reset]);
   return <StoreContext.Provider value={value}>{children}</StoreContext.Provider>;

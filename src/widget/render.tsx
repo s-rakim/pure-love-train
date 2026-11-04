@@ -1,7 +1,7 @@
 import type { WidgetInfo, WidgetRepresentation } from 'react-native-android-widget';
 
 import type { State } from '../lib/store';
-import { palettes, type Palette } from '../theme';
+import { themes, type Palette } from '../theme';
 import { MomentWidget } from './MomentWidget';
 
 /** The widget for this phone: the partner's newest moment, in light and dark (or the look chosen in Settings). */
@@ -18,6 +18,7 @@ export function momentWidget(state: State, info: Pick<WidgetInfo, 'width' | 'hei
       height={info.height}
     />
   );
+  const palettes = themes[state.theme ?? 'candle'] ?? themes.candle;
   const choice = state.appearance ?? 'system';
   if (choice === 'system') return { light: make(palettes.light), dark: make(palettes.dark) };
   const only = make(palettes[choice]);
