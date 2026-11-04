@@ -10,7 +10,7 @@
     "backgroundColor": "#0B0A09",
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.purelove.app",
+      "bundleIdentifier": "com.rakimbuilds.youandi",
       "infoPlist": {
         "NSAppTransportSecurity": {
           "NSAllowsArbitraryLoads": true
@@ -18,7 +18,8 @@
       }
     },
     "android": {
-      "package": "com.purelove.app",
+      "package": "com.rakimbuilds.youandi",
+      "googleServicesFile": "./google-services.json",
       "versionCode": 160,
       "allowBackup": false,
       "adaptiveIcon": {

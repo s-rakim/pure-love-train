@@ -79,7 +79,7 @@ It needs a Google OAuth client, which you set up once:
 
 1. In [Google Cloud Console](https://console.cloud.google.com), create a project and set up the **OAuth consent screen** (External). While it's in testing, add both of your Gmail addresses as test users.
 2. Under **Credentials → Create credentials → OAuth client ID**, create a **Web application** client. Copy its client ID.
-3. Create a second OAuth client ID of type **Android** with package name `com.purelove.app` and the **SHA-1 fingerprint** of the app's signing key, which is on expo.dev under **Project → Credentials → Android**.
+3. Create a second OAuth client ID of type **Android** with package name `com.rakimbuilds.youandi` and the **SHA-1 fingerprint** of the app's signing key, which is on expo.dev under **Project → Credentials → Android**.
 4. On the server machine, put `GOOGLE_CLIENT_ID=<the web client ID>` in a `.env` file next to `docker-compose.yml` and run `docker compose up -d --build`.
 5. In the app, open **Settings → Your account → Sign in with Google**.
 
