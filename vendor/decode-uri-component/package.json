@@ -1,0 +1,7 @@
+{
+  "name": "decode-uri-component",
+  "version": "0.2.3",
+  "description": "decodeURIComponent that doesn't throw on malformed input, in linear time",
+  "license": "MIT",
+  "main": "index.js"
+}

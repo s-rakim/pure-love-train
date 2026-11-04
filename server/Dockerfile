@@ -9,7 +9,8 @@ ENV NODE_ENV=production \
 COPY package.json ./
 COPY src ./src
 
-RUN mkdir -p /data && chown node:node /data
+# Take the latest security fixes for the base system on every build.
+RUN apk upgrade --no-cache && mkdir -p /data && chown node:node /data && chmod 700 /data
 USER node
 VOLUME /data
 EXPOSE 8787

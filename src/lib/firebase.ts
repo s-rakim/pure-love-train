@@ -29,6 +29,9 @@ export function firebaseApp(): FirebaseApp {
 
 let auth: Auth | null = null;
 
+/** The shortest password a new account may have. */
+export const MIN_PASSWORD = 8;
+
 // Nothing is kept signed in here: the app only needs Firebase to prove the email and
 // password once, then your sync server keeps you signed in.
 function firebaseAuth(): Auth {
@@ -41,7 +44,8 @@ function friendly(err: unknown): Error {
   const messages: Record<string, string> = {
     'auth/invalid-email': "That email address doesn't look right.",
     'auth/missing-password': 'Type your password.',
-    'auth/weak-password': 'Use a password of at least 6 characters.',
+    'auth/weak-password': 'Use a longer password, of at least 8 characters.',
+    'auth/password-does-not-meet-requirements': 'Use a longer password, of at least 8 characters.',
     'auth/email-already-in-use': 'That email already has an account. Check the password.',
     'auth/invalid-credential': "That email and password don't match.",
     'auth/wrong-password': "That email and password don't match.",
@@ -61,7 +65,14 @@ export async function emailIdToken(email: string, password: string, create: bool
   const a = firebaseAuth();
   try {
     let cred;
-    if (create) {
+    if (create && password.length < MIN_PASSWORD) {
+      // Too short for a new account, but an older account may still use it.
+      try {
+        cred = await signInWithEmailAndPassword(a, email.trim(), password);
+      } catch {
+        throw new Error(`Use a password of at least ${MIN_PASSWORD} characters.`);
+      }
+    } else if (create) {
       try {
         cred = await createUserWithEmailAndPassword(a, email.trim(), password);
       } catch (err) {

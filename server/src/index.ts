@@ -20,7 +20,9 @@ const server = createServer(
     maxCouples: Number(process.env.MAX_SPACES) || undefined,
     storageLimitBytes: Number(process.env.STORAGE_LIMIT_GB) * 1e9 || undefined,
     // Set when Caddy (or another reverse proxy) sits in front, so limits count each caller.
-    trustProxy: process.env.TRUST_PROXY === '1',
+    trustProxy: process.env.TRUST_PROXY === 'cloudflare' ? 'cloudflare' : process.env.TRUST_PROXY === '1',
+    // Encrypts what's kept on disk. Keep a copy somewhere safe: without it the data can't be read.
+    dataKey: process.env.DATA_KEY || undefined,
     // Requests a minute from one address and from one phone, and new spaces per address a day.
     requestsPerAddress: Number(process.env.REQUESTS_PER_MINUTE) || undefined,
     spacesPerAddressPerDay: Number(process.env.SPACES_PER_ADDRESS_PER_DAY) || undefined,
@@ -37,6 +39,7 @@ server.on('clientError', (_err, socket) => socket.destroy());
 
 server.listen(port, () => {
   console.log(`Pure Love sync server listening on port ${port}, data in ${dataDir}`);
+  if (!process.env.DATA_KEY) console.warn('DATA_KEY is not set, so data on disk is not encrypted.');
 });
 
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {

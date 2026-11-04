@@ -85,6 +85,12 @@ export function openDb(path: string): DatabaseSync {
       revoked_at TEXT NOT NULL
     );
 
+    -- Server settings, such as the check that DATA_KEY is the key the data was encrypted with.
+    CREATE TABLE IF NOT EXISTS meta (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS photos (
       id TEXT PRIMARY KEY,
       couple_id TEXT NOT NULL REFERENCES couples(id) ON DELETE CASCADE,
@@ -98,6 +104,8 @@ export function openDb(path: string): DatabaseSync {
   addColumn(db, 'member_tokens', 'last_used_at', 'TEXT');
   // How the phone signed in: 'partner' when it used a restore code from the partner.
   addColumn(db, 'member_tokens', 'via', 'TEXT');
+  // The nonce of a photo or video encrypted with DATA_KEY (hex); null when stored as it came.
+  addColumn(db, 'photos', 'nonce', 'TEXT');
   // Older servers kept each member's first sign-in on the member itself. Move it into
   // member_tokens, where it can be revoked, and leave a value no token can hash to.
   db.exec(`

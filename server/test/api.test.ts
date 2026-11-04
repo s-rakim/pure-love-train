@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { createServer, type Server } from 'node:http';
 import type { AddressInfo } from 'node:net';
 import { tmpdir } from 'node:os';
@@ -8,7 +8,7 @@ import { after, before, describe, it } from 'node:test';
 
 import { generateKeyPairSync, sign } from 'node:crypto';
 
-import { createApp, verifyFirebaseIdToken } from '../src/app.ts';
+import { createApp, verifyFirebaseIdToken, verifyGoogleIdToken } from '../src/app.ts';
 import { openDb } from '../src/db.ts';
 
 let server: Server;
@@ -511,5 +511,122 @@ describe('daily content', () => {
     assert.equal(mine.body.results[0].ok, true);
     const theirs = await call('/api/sync', { method: 'POST', token: sam.token, json: { records: [{ kind: 'seen', id: `${alex.memberId}:m1`, data: { at: 'x' } }] } });
     assert.equal(theirs.body.results[0].ok, false);
+  });
+});
+
+describe('google tokens', () => {
+  it('checks Google ID tokens against Google keys, on this server', async () => {
+    const { publicKey, privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+    const jwk = { ...publicKey.export({ format: 'jwk' }), kid: 'g1', alg: 'RS256', use: 'sig' };
+    const realFetch = globalThis.fetch;
+    const asked: string[] = [];
+    globalThis.fetch = (async (u: string) => {
+      asked.push(String(u));
+      return new Response(JSON.stringify({ keys: [jwk] }));
+    }) as typeof fetch;
+    const token = (claims: Record<string, unknown>, alg = 'RS256') => {
+      const head = Buffer.from(JSON.stringify({ alg, kid: 'g1' })).toString('base64url');
+      const body = Buffer.from(JSON.stringify(claims)).toString('base64url');
+      return `${head}.${body}.${sign('RSA-SHA256', Buffer.from(`${head}.${body}`), privateKey).toString('base64url')}`;
+    };
+    const t = Math.floor(Date.now() / 1000);
+    const good = { iss: 'https://accounts.google.com', aud: 'web', sub: 'g', email: 'g@gmail.com', email_verified: true, iat: t, exp: t + 3600 };
+    try {
+      assert.deepEqual(await verifyGoogleIdToken(token(good), 'web'), { subject: 'g', email: 'g@gmail.com' });
+      assert.ok(asked.every((u) => !u.includes('id_token')), 'the token itself is never sent anywhere');
+      await assert.rejects(verifyGoogleIdToken(token(good), 'another-app'));
+      await assert.rejects(verifyGoogleIdToken(token({ ...good, email_verified: false }), 'web'));
+      await assert.rejects(verifyGoogleIdToken(token({ ...good, iss: 'https://evil.example' }), 'web'));
+      const [h, b] = token(good).split('.');
+      const none = `${Buffer.from(JSON.stringify({ alg: 'none', kid: 'g1' })).toString('base64url')}.${b}.`;
+      await assert.rejects(verifyGoogleIdToken(none, 'web'), 'alg none is refused');
+      await assert.rejects(verifyGoogleIdToken(`${h}.${b}.AAAA`, 'web'), 'a bad signature is refused');
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+});
+
+describe('names and phones', () => {
+  it('drops control characters from names and caps phones per person', async () => {
+    const a = (await call('/api/couples', { method: 'POST', json: { name: 'Ri‮kc\u0000y\n' } })).body;
+    const b = (await call('/api/couples/join', { method: 'POST', json: { name: 'Jo', code: a.pairCode } })).body;
+    assert.equal(b.partner.name, 'Rikcy');
+    await call('/api/account/google', { method: 'POST', token: a.token, json: { idToken: 'google:ricky' } });
+    const tokens = [a.token];
+    for (let i = 0; i < 10; i++) {
+      tokens.push((await call('/api/account/google/restore', { method: 'POST', json: { idToken: 'google:ricky' } })).body.token);
+    }
+    const first = await call('/api/me', { token: tokens[0] });
+    assert.equal(first.status, 401, 'the phone quiet the longest is signed out');
+    assert.match(first.body.error, /too many/);
+    assert.equal((await call('/api/me', { token: tokens[10] })).status, 200);
+  });
+});
+
+describe('encryption on disk', () => {
+  const key = 'k'.repeat(40);
+  let dir: string;
+  before(() => {
+    dir = mkdtempSync(join(tmpdir(), 'pure-love-vault-'));
+  });
+  after(() => rmSync(dir, { recursive: true, force: true }));
+
+  async function serve(dataKey?: string) {
+    const db = openDb(join(dir, 'v.db'));
+    const app = createApp(db, dir, { dataKey, verifyGoogle: async () => ({ subject: 's', email: 'secret@mail.com' }), googleClientId: 'x' });
+    const srv = createServer(app);
+    await new Promise<void>((resolve) => srv.listen(0, resolve));
+    const at = `http://127.0.0.1:${(srv.address() as AddressInfo).port}`;
+    const go = async (path: string, init: RequestInit & { token?: string; json?: unknown } = {}) => {
+      const headers: Record<string, string> = { ...(init.headers as Record<string, string>) };
+      if (init.token) headers.authorization = `Bearer ${init.token}`;
+      if (init.json !== undefined) headers['content-type'] = 'application/json';
+      const res = await fetch(at + path, { ...init, headers, body: init.json !== undefined ? JSON.stringify(init.json) : init.body });
+      const type = res.headers.get('content-type') ?? '';
+      return { status: res.status, body: type.includes('json') ? await res.json() : Buffer.from(await res.arrayBuffer()) };
+    };
+    return { db, go, close: () => new Promise<void>((r) => srv.close(() => (db.close(), r()))) };
+  }
+
+  it('encrypts what was stored before, and everything after, and still serves it', async () => {
+    // First without a key, like a server that's been running a while.
+    let s = await serve();
+    const a = (await s.go('/api/couples', { method: 'POST', json: { name: 'Al' } })).body;
+    await s.go('/api/sync', { method: 'POST', token: a.token, json: { records: [{ kind: 'note', id: 'n1', data: { text: 'old secret' } }] } });
+    const bytes = Buffer.from('0123456789abcdefghijklmnopqrstuvwxyz'.repeat(10));
+    const old = (await s.go('/api/photos', { method: 'POST', token: a.token, headers: { 'content-type': 'image/jpeg' }, body: bytes })).body;
+    await s.close();
+
+    s = await serve(key);
+    await new Promise((r) => setTimeout(r, 200)); // the files are encrypted in the background
+    await s.go('/api/sync', { method: 'POST', token: a.token, json: { records: [{ kind: 'note', id: 'n2', data: { text: 'new secret' } }] } });
+    await s.go('/api/account/google', { method: 'POST', token: a.token, json: { idToken: 'x' } });
+    await s.go('/api/backup', { method: 'POST', token: a.token, json: { data: { names: { me: 'backup secret' } } } });
+    const fresh = (await s.go('/api/photos', { method: 'POST', token: a.token, headers: { 'content-type': 'image/jpeg' }, body: bytes })).body;
+
+    const raw = JSON.stringify([
+      s.db.prepare('SELECT data FROM records').all(),
+      s.db.prepare('SELECT data FROM backups').all(),
+      s.db.prepare('SELECT email FROM accounts').all(),
+    ]);
+    assert.ok(!/secret/.test(raw), 'nothing readable in the database');
+    for (const id of [old.photoId, fresh.photoId]) {
+      assert.ok(!readFileSync(join(dir, 'photos', id)).equals(bytes), 'nothing readable in the files');
+      const whole = await s.go(`/api/photos/${id}`, { token: a.token });
+      assert.ok((whole.body as Buffer).equals(bytes));
+      const piece = await s.go(`/api/photos/${id}`, { token: a.token, headers: { range: 'bytes=37-200' } });
+      assert.equal(piece.status, 206);
+      assert.ok((piece.body as Buffer).equals(bytes.subarray(37, 201)), 'any piece of a video decrypts');
+    }
+    const pulled = (await s.go('/api/sync?since=0', { token: a.token })).body;
+    assert.deepEqual(pulled.records.map((r: any) => r.data.text).sort(), ['new secret', 'old secret']);
+    const back = (await s.go('/api/account/google/restore', { method: 'POST', json: { idToken: 'x' } })).body;
+    assert.equal(back.email, 'secret@mail.com');
+    assert.equal(back.backup.names.me, 'backup secret');
+    await s.close();
+
+    await assert.rejects(serve(), /encrypted/, 'will not start without the key');
+    await assert.rejects(serve('w'.repeat(40)), /not the key/, 'or with the wrong one');
   });
 });

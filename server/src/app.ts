@@ -1,12 +1,14 @@
 import { createHash, createPublicKey, randomBytes, randomUUID, verify, type JsonWebKey } from 'node:crypto';
-import { createReadStream, createWriteStream, mkdirSync, rmSync, statSync, statfsSync } from 'node:fs';
+import { createReadStream, createWriteStream, mkdirSync, renameSync, rmSync, statSync, statfsSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import { pipeline } from 'node:stream/promises';
+import type { Transform } from 'node:stream';
 
 import { contentFor } from './content.ts';
 import type { RecordRow } from './db.ts';
+import { makeVault, type Vault } from './vault.ts';
 
 /** Records each partner owns; only their author may change them. */
 const OWNED_KINDS = new Set(['profile', 'mood', 'answer', 'note', 'moment', 'cycle', 'pick', 'seen']);
@@ -86,8 +88,15 @@ export type AppOptions = {
   signInAttempts?: number;
   /** Tries a minute from everyone together, so many addresses can't guess codes either. */
   signInAttemptsTotal?: number;
-  /** Behind a reverse proxy (like Caddy): take the caller's address from X-Forwarded-For. */
-  trustProxy?: boolean;
+  /**
+   * Behind a reverse proxy: true takes the caller's address from the end of X-Forwarded-For
+   * (Caddy), 'cloudflare' from CF-Connecting-IP (only safe when Caddy lets in nothing but Cloudflare).
+   */
+  trustProxy?: boolean | 'cloudflare';
+  /** Encrypts records, backups, emails and files on disk with this key. */
+  dataKey?: string;
+  /** Phones one member may have signed in at once. */
+  maxPhonesPerMember?: number;
   /** Requests a minute from one address, for everything. */
   requestsPerAddress?: number;
   /** Requests a minute from one signed-in phone. */
@@ -104,56 +113,36 @@ export type AppOptions = {
   verifyFirebase?: (idToken: string, projectId: string) => Promise<GoogleIdentity>;
 };
 
-/** Asks Google whether an ID token is genuine and meant for this server's client. */
-export async function verifyGoogleIdToken(idToken: string, clientId: string): Promise<GoogleIdentity> {
-  let res: Response;
-  try {
-    res = await fetch(`https://oauth2.googleapis.com/tokeninfo?id_token=${encodeURIComponent(idToken)}`);
-  } catch {
-    throw new HttpError(502, "Couldn't reach Google to check the sign-in");
-  }
-  const info = (await res.json().catch(() => ({}))) as Record<string, string | undefined>;
-  const issuers = ['accounts.google.com', 'https://accounts.google.com'];
-  if (
-    !res.ok ||
-    info.aud !== clientId ||
-    !issuers.includes(info.iss ?? '') ||
-    Number(info.exp ?? 0) * 1000 < Date.now() ||
-    !info.sub ||
-    !info.email ||
-    String(info.email_verified) !== 'true'
-  ) {
-    throw new HttpError(401, 'Google sign-in could not be verified');
-  }
-  return { subject: info.sub, email: info.email };
-}
-
-// Firebase signs its ID tokens with Google keys that change every few days.
+// Google and Firebase sign their ID tokens with keys that change every few days.
+const GOOGLE_KEYS = 'https://www.googleapis.com/oauth2/v3/certs';
 const FIREBASE_KEYS = 'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com';
-let firebaseKeys: { keys: (JsonWebKey & { kid?: string })[]; fetchedAt: number } | null = null;
+const keyCache = new Map<string, { keys: (JsonWebKey & { kid?: string })[]; fetchedAt: number }>();
 
-async function firebaseKey(kid: string) {
-  const age = firebaseKeys ? Date.now() - firebaseKeys.fetchedAt : Infinity;
-  const known = firebaseKeys?.keys.some((k) => k.kid === kid);
+async function signingKey(url: string, kid: string) {
+  const cached = keyCache.get(url);
+  const age = cached ? Date.now() - cached.fetchedAt : Infinity;
+  const known = cached?.keys.some((k) => k.kid === kid);
   // Fetch hourly, or sooner for a key we haven't seen, but not more than once a minute,
   // so made-up key ids can't make the server hammer Google.
   if (age > 60 * 60_000 || (!known && age > 60_000)) {
     try {
-      const res = await fetch(FIREBASE_KEYS);
-      if (res.ok) firebaseKeys = { keys: ((await res.json()) as { keys: JsonWebKey[] }).keys, fetchedAt: Date.now() };
+      const res = await fetch(url);
+      if (res.ok) keyCache.set(url, { keys: ((await res.json()) as { keys: JsonWebKey[] }).keys, fetchedAt: Date.now() });
     } catch {
       throw new HttpError(502, "Couldn't reach Google to check the sign-in");
     }
   }
-  const jwk = firebaseKeys?.keys.find((k) => k.kid === kid);
+  const jwk = keyCache.get(url)?.keys.find((k) => k.kid === kid && (k.kty === 'RSA' || !k.kty));
   return jwk ? createPublicKey({ key: jwk, format: 'jwk' }) : null;
 }
 
-/** Checks a Firebase ID token (from email and password sign-in) is genuine and for this project. */
-export async function verifyFirebaseIdToken(idToken: string, projectId: string): Promise<GoogleIdentity> {
-  const fail = () => new HttpError(401, 'Email sign-in could not be verified');
+/**
+ * Checks an RS256 ID token's signature against Google's published keys and its time window,
+ * and returns its claims. Only RS256 is accepted, so "alg": "none" or HMAC tricks are refused.
+ */
+async function verifiedClaims(idToken: string, keysUrl: string, fail: () => HttpError): Promise<Record<string, unknown>> {
   const parts = idToken.split('.');
-  if (parts.length !== 3) throw fail();
+  if (parts.length !== 3 || idToken.length > 8000) throw fail();
   let header: { alg?: string; kid?: string };
   let claims: Record<string, unknown>;
   try {
@@ -162,26 +151,40 @@ export async function verifyFirebaseIdToken(idToken: string, projectId: string):
   } catch {
     throw fail();
   }
-  if (header.alg !== 'RS256' || !header.kid) throw fail();
-  const key = await firebaseKey(header.kid);
+  if (header.alg !== 'RS256' || typeof header.kid !== 'string' || !claims || typeof claims !== 'object') throw fail();
+  const key = await signingKey(keysUrl, header.kid);
   if (!key) throw fail();
   const signed = verify('RSA-SHA256', Buffer.from(`${parts[0]}.${parts[1]}`), key, Buffer.from(parts[2], 'base64url'));
   const nowSec = Date.now() / 1000;
+  if (!signed || Number(claims.exp ?? 0) < nowSec || Number(claims.iat ?? Infinity) > nowSec + 300) throw fail();
+  if (typeof claims.sub !== 'string' || !claims.sub || typeof claims.email !== 'string') throw fail();
+  return claims;
+}
+
+/** Checks a Google ID token is genuine, for this server's client, and for a verified email. */
+export async function verifyGoogleIdToken(idToken: string, clientId: string): Promise<GoogleIdentity> {
+  const fail = () => new HttpError(401, 'Google sign-in could not be verified');
+  const claims = await verifiedClaims(idToken, GOOGLE_KEYS, fail);
+  const issuers = ['accounts.google.com', 'https://accounts.google.com'];
+  if (claims.aud !== clientId || !issuers.includes(String(claims.iss)) || String(claims.email_verified) !== 'true') {
+    throw fail();
+  }
+  return { subject: claims.sub as string, email: claims.email as string };
+}
+
+/** Checks a Firebase ID token (from email and password sign-in) is genuine and for this project. */
+export async function verifyFirebaseIdToken(idToken: string, projectId: string): Promise<GoogleIdentity> {
+  const fail = () => new HttpError(401, 'Email sign-in could not be verified');
+  const claims = await verifiedClaims(idToken, FIREBASE_KEYS, fail);
   if (
-    !signed ||
     claims.aud !== projectId ||
     claims.iss !== `https://securetoken.google.com/${projectId}` ||
-    Number(claims.exp ?? 0) < nowSec ||
-    Number(claims.iat ?? Infinity) > nowSec + 300 ||
-    typeof claims.sub !== 'string' ||
-    !claims.sub ||
-    typeof claims.email !== 'string' ||
     // Only email and password sign-ins; not anonymous or any other kind Firebase may allow later.
     (claims.firebase as { sign_in_provider?: unknown } | undefined)?.sign_in_provider !== 'password'
   ) {
     throw fail();
   }
-  return { subject: claims.sub, email: claims.email };
+  return { subject: claims.sub as string, email: claims.email as string };
 }
 
 class HttpError extends Error {
@@ -236,20 +239,18 @@ async function readBody(req: IncomingMessage, limit: number): Promise<Buffer> {
 }
 
 /** Streams a request body into a file, giving up (and removing the file) past `limit` bytes. */
-async function saveBody(req: IncomingMessage, path: string, limit: number): Promise<number> {
+async function saveBody(req: IncomingMessage, path: string, limit: number, encrypt?: Transform): Promise<number> {
   let size = 0;
+  const measure = async function* (source: AsyncIterable<Buffer>) {
+    for await (const chunk of source) {
+      size += chunk.length;
+      if (size > limit) throw new HttpError(413, 'That file is too large');
+      yield chunk;
+    }
+  };
   try {
-    await pipeline(
-      req,
-      async function* (source: AsyncIterable<Buffer>) {
-        for await (const chunk of source) {
-          size += chunk.length;
-          if (size > limit) throw new HttpError(413, 'That file is too large');
-          yield chunk;
-        }
-      },
-      createWriteStream(path),
-    );
+    if (encrypt) await pipeline(req, measure, encrypt, createWriteStream(path, { mode: 0o600 }));
+    else await pipeline(req, measure, createWriteStream(path, { mode: 0o600 }));
     return size;
   } catch (err) {
     rmSync(path, { force: true });
@@ -283,7 +284,8 @@ function mediaOf(data: string | null): string[] {
 }
 
 function cleanName(value: unknown): string {
-  const name = typeof value === 'string' ? value.trim().slice(0, 60) : '';
+  // Control and invisible formatting characters (like right-to-left overrides) are dropped.
+  const name = typeof value === 'string' ? value.replace(/[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/gu, '').trim().slice(0, 60) : '';
   if (!name) throw new HttpError(400, 'A name is required');
   return name;
 }
@@ -303,7 +305,9 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
   const spacesPerAddress = new Limiter(options.spacesPerAddressPerDay ?? 5, 24 * 60 * 60_000);
   const maxRecords = options.maxRecordsPerSpace ?? 100_000;
   const photoDir = join(dataDir, 'photos');
-  mkdirSync(photoDir, { recursive: true });
+  mkdirSync(photoDir, { recursive: true, mode: 0o700 });
+  const vault: Vault = makeVault(options.dataKey);
+  const maxPhones = options.maxPhonesPerMember ?? 10;
 
   const findMemberByToken = db.prepare(`
     SELECT m.id, m.couple_id, m.name, t.last_used_at, t.via, t.created_at FROM member_tokens t
@@ -366,9 +370,12 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
     'SELECT kind, id, author, data, deleted, seq, updated_at FROM records WHERE couple_id = ? AND seq > ? ORDER BY seq LIMIT ?',
   );
   const insertPhoto = db.prepare(
-    'INSERT INTO photos (id, couple_id, member_id, mime, size, created_at) VALUES (?, ?, ?, ?, ?, ?)',
+    'INSERT INTO photos (id, couple_id, member_id, mime, size, created_at, nonce) VALUES (?, ?, ?, ?, ?, ?, ?)',
   );
-  const getPhoto = db.prepare('SELECT id, couple_id, member_id, mime, size FROM photos WHERE id = ?');
+  const getPhoto = db.prepare('SELECT id, couple_id, member_id, mime, size, nonce FROM photos WHERE id = ?');
+  const oldestTokensOf = db.prepare(
+    'SELECT token_hash FROM member_tokens WHERE member_id = ? ORDER BY coalesce(last_used_at, created_at) DESC LIMIT -1 OFFSET ?',
+  );
   const deletePhotoRow = db.prepare('DELETE FROM photos WHERE id = ?');
   const photosOfMember = db.prepare('SELECT id FROM photos WHERE member_id = ?');
   const photosOfCouple = db.prepare('SELECT id FROM photos WHERE couple_id = ?');
@@ -385,7 +392,10 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
   const total = { count: 0, resetAt: 0 };
   function clientAddress(req: IncomingMessage): string {
     // Caddy adds the address it saw to the end of X-Forwarded-For; anything before it came from the caller.
-    if (trustProxy) {
+    if (trustProxy === 'cloudflare') {
+      const ip = String(req.headers['cf-connecting-ip'] ?? '').trim();
+      if (ip) return ip;
+    } else if (trustProxy) {
       const forwarded = String(req.headers['x-forwarded-for'] ?? '').split(',').pop()?.trim();
       if (forwarded) return forwarded;
     }
@@ -443,6 +453,11 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
   function newToken(memberId: string, via: string | null = null): string {
     const token = randomBytes(32).toString('hex');
     insertToken.run(hashToken(token), memberId, now(), now(), via);
+    // Only so many phones at once; the ones quiet the longest are signed out.
+    for (const { token_hash } of oldestTokensOf.all(memberId, maxPhones) as { token_hash: string }[]) {
+      insertRevoked.run(token_hash, 'This phone was signed out because you signed in on too many others.', now());
+      deleteToken.run(token_hash);
+    }
     return token;
   }
 
@@ -519,7 +534,7 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
       kind: r.kind,
       id: r.id,
       author: r.author,
-      data: r.data ? JSON.parse(r.data) : null,
+      data: r.data ? JSON.parse(vault.open(r.data)) : null,
       deleted: r.deleted === 1,
       seq: r.seq,
       updatedAt: r.updated_at,
@@ -544,7 +559,8 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
           results.push({ kind, id, ok: false, error: 'Unknown record' });
           continue;
         }
-        const existing = getRecord.get(member.couple_id, kind, id) as { author: string; data: string | null } | undefined;
+        const row = getRecord.get(member.couple_id, kind, id) as { author: string; data: string | null } | undefined;
+        const existing = row ? { author: row.author, data: vault.open(row.data) } : undefined;
         const deleted = r.deleted === true;
         if (!existing && stored >= maxRecords) {
           results.push({ kind, id, ok: false, error: 'Your space is full' });
@@ -562,7 +578,7 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
           continue;
         }
         const { seq } = bumpSeq.get(member.couple_id) as { seq: number };
-        upsertRecord.run(member.couple_id, kind, id, member.id, data, deleted ? 1 : 0, seq, now());
+        upsertRecord.run(member.couple_id, kind, id, member.id, vault.seal(data), deleted ? 1 : 0, seq, now());
         // A deleted or changed moment no longer needs its old photo or video.
         if (kind === 'moment' && existing) {
           const kept = new Set(mediaOf(data));
@@ -691,7 +707,7 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
     db.exec('BEGIN');
     try {
       deleteAccountsOfMember.run(member.id);
-      insertAccount.run(provider, identity.subject, member.id, identity.email, now());
+      insertAccount.run(provider, identity.subject, member.id, vault.seal(identity.email), now());
       db.exec('COMMIT');
     } catch (err) {
       db.exec('ROLLBACK');
@@ -707,9 +723,9 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
     send(res, 200, {
       token,
       name: member.name,
-      email: account?.email ?? null,
+      email: account ? vault.open(account.email) : null,
       provider: account?.provider ?? null,
-      backup: backup ? JSON.parse(backup.data) : null,
+      backup: backup ? JSON.parse(vault.open(backup.data)) : null,
       ...describe(member),
     });
   }
@@ -782,7 +798,7 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
     if (!body.data || typeof body.data !== 'object') throw new HttpError(400, 'data must be an object');
     const data = JSON.stringify(body.data);
     if (data.length > MAX_BACKUP_BYTES) throw new HttpError(413, 'That backup is too large');
-    upsertBackup.run(member.id, data, now());
+    upsertBackup.run(member.id, vault.seal(data), now());
     send(res, 200, { ok: true });
   }
 
@@ -800,7 +816,8 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
     }
     const id = randomUUID();
     const path = join(photoDir, id);
-    const size = await saveBody(req, path, limit);
+    const nonce = vault.on ? vault.fileNonce() : null;
+    const size = await saveBody(req, path, limit, nonce ? vault.fileStream(nonce) : undefined);
     if (!size) {
       rmSync(path, { force: true });
       throw new HttpError(400, 'The file is empty');
@@ -811,13 +828,13 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
       rmSync(path, { force: true });
       throw new HttpError(507, 'Your space is out of room on the server. Delete some old videos or raise STORAGE_LIMIT_GB.');
     }
-    insertPhoto.run(id, member.couple_id, member.id, mime, size, now());
+    insertPhoto.run(id, member.couple_id, member.id, mime, size, now(), nonce ? nonce.toString('hex') : null);
     send(res, 201, { photoId: id });
   }
 
-  function downloadPhoto(req: IncomingMessage, res: ServerResponse, id: string) {
+  async function downloadPhoto(req: IncomingMessage, res: ServerResponse, id: string) {
     const member = authenticate(req);
-    const photo = getPhoto.get(id) as { id: string; couple_id: string; mime: string; size: number } | undefined;
+    const photo = getPhoto.get(id) as { id: string; couple_id: string; mime: string; size: number; nonce: string | null } | undefined;
     if (!photo || photo.couple_id !== member.couple_id) throw new HttpError(404, 'Photo not found');
     const path = join(photoDir, photo.id);
     let size: number;
@@ -831,21 +848,32 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
       'content-type': photo.mime,
       'accept-ranges': 'bytes',
       'cache-control': 'private, max-age=31536000, immutable',
+      // Opened in a browser, a file can never run as a page.
+      'content-security-policy': "default-src 'none'; img-src 'self'; media-src 'self'; sandbox",
     };
+    let start = 0;
+    let end = size - 1;
     // Players ask for videos a piece at a time, so they can start (and skip ahead) straight away.
-    const range = /^bytes=(\d*)-(\d*)$/.exec(String(req.headers.range ?? ''));
+    const range = /^bytes=(\d{0,15})-(\d{0,15})$/.exec(String(req.headers.range ?? ''));
     if (range && (range[1] || range[2])) {
-      const start = range[1] ? Number(range[1]) : Math.max(0, size - Number(range[2]));
-      const end = range[1] && range[2] ? Math.min(Number(range[2]), size - 1) : size - 1;
+      start = range[1] ? Number(range[1]) : Math.max(0, size - Number(range[2]));
+      end = range[1] && range[2] ? Math.min(Number(range[2]), size - 1) : size - 1;
       if (start > end) {
         res.writeHead(416, { ...CORS, 'content-range': `bytes */${size}` });
         return res.end();
       }
       res.writeHead(206, { ...headers, 'content-range': `bytes ${start}-${end}/${size}`, 'content-length': end - start + 1 });
-      return createReadStream(path, { start, end }).pipe(res);
+    } else {
+      res.writeHead(200, { ...headers, 'content-length': size });
     }
-    res.writeHead(200, { ...headers, 'content-length': size });
-    createReadStream(path).pipe(res);
+    // pipeline closes the file if the phone goes away halfway, so no file handles leak.
+    const file = createReadStream(path, { start, end });
+    try {
+      if (photo.nonce) await pipeline(file, vault.fileStream(Buffer.from(photo.nonce, 'hex'), start), res);
+      else await pipeline(file, res);
+    } catch {
+      res.destroy();
+    }
   }
 
   function diskFree(): number {
@@ -856,6 +884,64 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
       return Infinity;
     }
   }
+
+  // DATA_KEY must stay the same once set: with no key, or a different one, the server won't start
+  // rather than serve or overwrite data it can't read.
+  const keyCheck = db.prepare("SELECT value FROM meta WHERE key = 'key_check'").get() as { value: string } | undefined;
+  if (keyCheck) {
+    if (!vault.on) throw new Error('This data is encrypted. Set DATA_KEY to the key it was encrypted with.');
+    let matches = false;
+    try {
+      matches = vault.open(keyCheck.value) === 'you-and-i';
+    } catch {
+      matches = false;
+    }
+    if (!matches) throw new Error('DATA_KEY is not the key this data was encrypted with.');
+  } else if (vault.on) {
+    db.prepare("INSERT INTO meta (key, value) VALUES ('key_check', ?)").run(vault.seal('you-and-i'));
+  }
+
+  /** Encrypts whatever was stored before DATA_KEY was set: records, backups and emails now, files in the background. */
+  function encryptExisting() {
+    const plain = (table: string, column: string) =>
+      db.prepare(`SELECT rowid AS r, ${column} AS v FROM ${table} WHERE ${column} IS NOT NULL AND ${column} NOT LIKE 'enc1:%'`);
+    db.exec('BEGIN');
+    try {
+      for (const [table, column] of [
+        ['records', 'data'],
+        ['backups', 'data'],
+        ['accounts', 'email'],
+      ]) {
+        const update = db.prepare(`UPDATE ${table} SET ${column} = ? WHERE rowid = ?`);
+        for (const row of plain(table, column).all() as { r: number; v: string }[]) update.run(vault.seal(row.v), row.r);
+      }
+      db.exec('COMMIT');
+    } catch (err) {
+      db.exec('ROLLBACK');
+      throw err;
+    }
+    const pending = db.prepare('SELECT id FROM photos WHERE nonce IS NULL').all() as { id: string }[];
+    const setNonce = db.prepare('UPDATE photos SET nonce = ? WHERE id = ? AND nonce IS NULL');
+    void (async () => {
+      for (const { id } of pending) {
+        const path = join(photoDir, id);
+        const temp = `${path}.enc`;
+        const nonce = vault.fileNonce();
+        try {
+          await pipeline(createReadStream(path), vault.fileStream(nonce), createWriteStream(temp, { mode: 0o600 }));
+          if (!getPhoto.get(id)) {
+            rmSync(temp, { force: true });
+            continue;
+          }
+          renameSync(temp, path);
+          setNonce.run(nonce.toString('hex'), id);
+        } catch {
+          rmSync(temp, { force: true });
+        }
+      }
+    })();
+  }
+  if (vault.on) encryptExisting();
 
   // Phones that haven't synced for months are signed out; they can pair or restore again.
   // Spaces nobody joined and nothing was written to are cleared away, so they can't fill the server.
@@ -905,7 +991,7 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
       if (route === 'POST /api/sync') return await postSync(req, res);
       if (route === 'POST /api/photos') return await uploadPhoto(req, res);
       const photo = url.pathname.match(/^\/api\/photos\/([0-9a-f-]{36})$/);
-      if (req.method === 'GET' && photo) return downloadPhoto(req, res, photo[1]);
+      if (req.method === 'GET' && photo) return await downloadPhoto(req, res, photo[1]);
       throw new HttpError(404, 'Not found');
     } catch (err) {
       if (err instanceof HttpError) return send(res, err.status, { error: err.message });

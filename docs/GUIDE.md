@@ -96,7 +96,7 @@ The data lives in the Docker volume `pure-love-data` (the database plus photos a
 docker run --rm -v pure-love-data:/data -v "$PWD":/backup alpine tar czf /backup/pure-love-backup.tgz /data
 ```
 
-Settings go in a `.env` file next to `docker-compose.yml`: `GOOGLE_CLIENT_ID`, `BIND_ADDRESS`, `MAX_SPACES`, `STORAGE_LIMIT_GB`. The server only listens on the machine itself; `tailscale serve --bg 8787` shares it with your phones over Tailscale.
+Settings go in a `.env` file next to `docker-compose.yml`: `GOOGLE_CLIENT_ID`, `BIND_ADDRESS`, `MAX_SPACES`, `STORAGE_LIMIT_GB`, `DATA_KEY`. `DATA_KEY` (make one with `openssl rand -hex 32`) encrypts everything the server stores; keep a copy in a password manager, because without it the data can't be read. The server only listens on the machine itself; `tailscale serve --bg 8787` shares it with your phones over Tailscale.
 
 ### Daily questions and date ideas
 

@@ -16,6 +16,9 @@ services:
       # How many spaces the server holds, and the room each gets for photos and videos.
       - MAX_SPACES=${MAX_SPACES:-10}
       - STORAGE_LIMIT_GB=${STORAGE_LIMIT_GB:-5}
+      # Encrypts what the server keeps on disk. Make one with `openssl rand -hex 32`, put it in .env
+      # and keep a copy somewhere safe (a password manager): without it the data can't be read.
+      - DATA_KEY=${DATA_KEY:-}
     volumes:
       - pure-love-data:/data
     # Nothing in the container needs to change itself or gain privileges.
@@ -26,6 +29,12 @@ services:
       - ALL
     security_opt:
       - no-new-privileges:true
+    # Logs can't grow until they fill the disk.
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   pure-love-data:

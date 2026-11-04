@@ -139,7 +139,7 @@ export function AccountCard() {
                 autoComplete="password"
               />
               <Body muted style={{ fontSize: 13 }}>
-                New here? This makes your account. Already have one? Use the same password.
+                New here? This makes your account, with a password of at least 8 characters. Already have one? Use the same password.
               </Body>
               <Button
                 label={busy ? 'Signing in…' : 'Sign in with email'}

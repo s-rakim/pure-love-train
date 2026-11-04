@@ -1,0 +1,11 @@
+# Puts Cloudflare in front: Caddy only lets Cloudflare in, and the server counts each caller
+# by the address Cloudflare passes on. Run from the repo root:
+#   docker compose -f docker-compose.yml -f deploy/docker-compose.public.yml -f deploy/docker-compose.cloudflare.yml up -d --build
+# See "Put Cloudflare in front" in deploy/oracle.md first.
+services:
+  pure-love-server:
+    environment:
+      - TRUST_PROXY=cloudflare
+  caddy:
+    volumes:
+      - ./deploy/Caddyfile.cloudflare:/etc/caddy/Caddyfile:ro
