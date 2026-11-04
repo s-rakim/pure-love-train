@@ -9,8 +9,8 @@ services:
       # (like 100.101.102.103) in a .env file next to this one. Never use 0.0.0.0.
       - "${BIND_ADDRESS:-127.0.0.1}:8787:8787"
     environment:
-      # For "Sign in with Google": the web client ID from Google Cloud. Put it in a .env file next to this one.
-      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      # For "Sign in with Google": the web client ID from Google Cloud (the private-pure-love-train project).
+      - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-529095023717-042ckc3i9c3lmel8aggmn524o5vm7lfu.apps.googleusercontent.com}
       # For "Sign in with email": the Firebase project the app signs in with.
       - FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID:-private-pure-love-train}
       # How many spaces the server holds, and the room each gets for photos and videos.
