@@ -3,7 +3,7 @@
     "name": "You&I💞",
     "slug": "pure-love",
     "scheme": "purelove",
-    "version": "1.6.0",
+    "version": "1.7.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "automatic",
@@ -20,7 +20,7 @@
     "android": {
       "package": "com.rakimbuilds.youandi",
       "googleServicesFile": "./google-services.json",
-      "versionCode": 160,
+      "versionCode": 170,
       "allowBackup": false,
       "adaptiveIcon": {
         "backgroundColor": "#0B0A09",
