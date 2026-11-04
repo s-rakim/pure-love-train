@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "529095023717",
+    "firebase_url": "https://private-pure-love-train-default-rtdb.firebaseio.com",
+    "project_id": "private-pure-love-train",
+    "storage_bucket": "private-pure-love-train.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:529095023717:android:91243041559269a2c5fa8c",
+        "android_client_info": {
+          "package_name": "com.rakimbuilds.youandi"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCuc0wq4ZFELPl4F_u5KAiRMqu-izXy0eM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
