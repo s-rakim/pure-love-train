@@ -70,6 +70,14 @@ export function openDb(path: string): DatabaseSync {
       updated_at TEXT NOT NULL
     );
 
+    -- One-time codes a partner makes to sign a new phone in as you.
+    CREATE TABLE IF NOT EXISTS restore_codes (
+      code_hash TEXT PRIMARY KEY,
+      member_id TEXT NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+      created_by TEXT NOT NULL,
+      expires_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS photos (
       id TEXT PRIMARY KEY,
       couple_id TEXT NOT NULL REFERENCES couples(id) ON DELETE CASCADE,

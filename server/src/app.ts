@@ -1,4 +1,4 @@
-import { createHash, randomBytes, randomUUID } from 'node:crypto';
+import { createHash, createPublicKey, randomBytes, randomUUID, verify, type JsonWebKey } from 'node:crypto';
 import { createReadStream, createWriteStream, mkdirSync, rmSync, statSync } from 'node:fs';
 import type { IncomingMessage, ServerResponse } from 'node:http';
 import { join } from 'node:path';
@@ -24,6 +24,8 @@ const PAGE_SIZE = 500;
 const PAIR_CODE_MS = 24 * 60 * 60_000;
 /** A phone that hasn't been heard from for this long has to sign in again. */
 const TOKEN_IDLE_MS = 180 * 24 * 60 * 60_000;
+/** How long a restore code from your partner works for. */
+const RESTORE_CODE_MS = 30 * 60_000;
 /** Owned records whose id is the author's member id, and those whose id starts with it. */
 const ID_IS_MEMBER = new Set(['profile', 'mood', 'cycle']);
 const ID_STARTS_WITH_MEMBER = new Set(['answer', 'pick', 'seen']);
@@ -35,8 +37,11 @@ const WRITER_FIELD: Record<string, { writer: string; partnerMay: string }> = {
 
 type Member = { id: string; couple_id: string; name: string };
 
-/** Who Google says signed in, after the ID token has been checked. */
+/** Who Google (or Firebase) says signed in, after the ID token has been checked. */
 export type GoogleIdentity = { subject: string; email: string };
+
+/** How someone can sign in again on a new phone. */
+type Provider = 'google' | 'email';
 
 export type AppOptions = {
   /** The OAuth web client ID Google sign-in tokens must be issued for. */
@@ -49,6 +54,10 @@ export type AppOptions = {
   signInAttempts?: number;
   /** Checks a Google ID token; swapped out in tests. */
   verifyGoogle?: (idToken: string, clientId: string) => Promise<GoogleIdentity>;
+  /** The Firebase project whose email and password sign-ins this server trusts. */
+  firebaseProjectId?: string;
+  /** Checks a Firebase ID token; swapped out in tests. */
+  verifyFirebase?: (idToken: string, projectId: string) => Promise<GoogleIdentity>;
 };
 
 /** Asks Google whether an ID token is genuine and meant for this server's client. */
@@ -75,6 +84,57 @@ export async function verifyGoogleIdToken(idToken: string, clientId: string): Pr
   return { subject: info.sub, email: info.email };
 }
 
+// Firebase signs its ID tokens with Google keys that change every few days.
+const FIREBASE_KEYS = 'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com';
+let firebaseKeys: { keys: (JsonWebKey & { kid?: string })[]; fetchedAt: number } | null = null;
+
+async function firebaseKey(kid: string) {
+  const fresh = firebaseKeys && Date.now() - firebaseKeys.fetchedAt < 60 * 60_000;
+  if (!fresh || !firebaseKeys?.keys.some((k) => k.kid === kid)) {
+    try {
+      const res = await fetch(FIREBASE_KEYS);
+      if (res.ok) firebaseKeys = { keys: ((await res.json()) as { keys: JsonWebKey[] }).keys, fetchedAt: Date.now() };
+    } catch {
+      throw new HttpError(502, "Couldn't reach Google to check the sign-in");
+    }
+  }
+  const jwk = firebaseKeys?.keys.find((k) => k.kid === kid);
+  return jwk ? createPublicKey({ key: jwk, format: 'jwk' }) : null;
+}
+
+/** Checks a Firebase ID token (from email and password sign-in) is genuine and for this project. */
+export async function verifyFirebaseIdToken(idToken: string, projectId: string): Promise<GoogleIdentity> {
+  const fail = () => new HttpError(401, 'Email sign-in could not be verified');
+  const parts = idToken.split('.');
+  if (parts.length !== 3) throw fail();
+  let header: { alg?: string; kid?: string };
+  let claims: Record<string, unknown>;
+  try {
+    header = JSON.parse(Buffer.from(parts[0], 'base64url').toString('utf8'));
+    claims = JSON.parse(Buffer.from(parts[1], 'base64url').toString('utf8'));
+  } catch {
+    throw fail();
+  }
+  if (header.alg !== 'RS256' || !header.kid) throw fail();
+  const key = await firebaseKey(header.kid);
+  if (!key) throw fail();
+  const signed = verify('RSA-SHA256', Buffer.from(`${parts[0]}.${parts[1]}`), key, Buffer.from(parts[2], 'base64url'));
+  const nowSec = Date.now() / 1000;
+  if (
+    !signed ||
+    claims.aud !== projectId ||
+    claims.iss !== `https://securetoken.google.com/${projectId}` ||
+    Number(claims.exp ?? 0) < nowSec ||
+    Number(claims.iat ?? Infinity) > nowSec + 300 ||
+    typeof claims.sub !== 'string' ||
+    !claims.sub ||
+    typeof claims.email !== 'string'
+  ) {
+    throw fail();
+  }
+  return { subject: claims.sub, email: claims.email };
+}
+
 class HttpError extends Error {
   status: number;
   constructor(status: number, message: string) {
@@ -86,9 +146,9 @@ class HttpError extends Error {
 const now = () => new Date().toISOString();
 const hashToken = (token: string) => createHash('sha256').update(token).digest('hex');
 
-function makePairCode(): string {
+function makePairCode(length = 6): string {
   const alphabet = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  const bytes = randomBytes(6);
+  const bytes = randomBytes(length);
   return Array.from(bytes, (b) => alphabet[b % alphabet.length]).join('');
 }
 
@@ -174,6 +234,8 @@ function cleanName(value: unknown): string {
 export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions = {}) {
   const googleClientId = options.googleClientId || null;
   const verifyGoogle = options.verifyGoogle ?? verifyGoogleIdToken;
+  const firebaseProjectId = options.firebaseProjectId || null;
+  const verifyFirebase = options.verifyFirebase ?? verifyFirebaseIdToken;
   const maxCouples = options.maxCouples ?? 10;
   const storageLimit = options.storageLimitBytes ?? 5_000_000_000;
   const signInAttempts = options.signInAttempts ?? 10;
@@ -193,17 +255,23 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
   const deleteCouple = db.prepare('DELETE FROM couples WHERE id = ?');
   const countCouples = db.prepare('SELECT COUNT(*) AS n FROM couples');
   const getMember = db.prepare('SELECT id, couple_id, name FROM members WHERE id = ?');
-  const findAccount = db.prepare("SELECT member_id, email FROM accounts WHERE provider = 'google' AND subject = ?");
+  const findAccount = db.prepare('SELECT member_id, email FROM accounts WHERE provider = ? AND subject = ?');
+  const accountOfMember = db.prepare('SELECT provider, email FROM accounts WHERE member_id = ?');
   const deleteAccountsOfMember = db.prepare('DELETE FROM accounts WHERE member_id = ?');
   const insertAccount = db.prepare(
-    "INSERT INTO accounts (provider, subject, member_id, email, created_at) VALUES ('google', ?, ?, ?, ?)",
+    'INSERT INTO accounts (provider, subject, member_id, email, created_at) VALUES (?, ?, ?, ?, ?)',
   );
+  const insertRestoreCode = db.prepare(
+    'INSERT INTO restore_codes (code_hash, member_id, created_by, expires_at) VALUES (?, ?, ?, ?)',
+  );
+  const deleteRestoreCodesOf = db.prepare('DELETE FROM restore_codes WHERE member_id = ?');
+  const takeRestoreCode = db.prepare('DELETE FROM restore_codes WHERE code_hash = ? AND expires_at > ? RETURNING member_id');
+  const deleteOldRestoreCodes = db.prepare('DELETE FROM restore_codes WHERE expires_at <= ?');
   const getBackup = db.prepare('SELECT data FROM backups WHERE member_id = ?');
   const upsertBackup = db.prepare(`
     INSERT INTO backups (member_id, data, updated_at) VALUES (?, ?, ?)
     ON CONFLICT (member_id) DO UPDATE SET data = excluded.data, updated_at = excluded.updated_at
   `);
-  const deleteBackup = db.prepare('DELETE FROM backups WHERE member_id = ?');
   const insertCouple = db.prepare('INSERT INTO couples (id, pair_code, created_at, pair_code_at) VALUES (?, ?, ?, ?)');
   const insertMember = db.prepare(
     'INSERT INTO members (id, couple_id, name, token_hash, created_at) VALUES (?, ?, ?, ?, ?)',
@@ -483,26 +551,28 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
     send(res, 200, { ok: true });
   }
 
-  async function googleIdentity(req: IncomingMessage): Promise<GoogleIdentity> {
-    if (!googleClientId) throw new HttpError(501, 'Google sign-in is not set up on this server');
+  /** Checks the sign-in token the phone got from Google or from Firebase (email and password). */
+  async function identityOf(provider: Provider, req: IncomingMessage): Promise<GoogleIdentity> {
+    if (provider === 'google' && !googleClientId) throw new HttpError(501, 'Google sign-in is not set up on this server');
+    if (provider === 'email' && !firebaseProjectId) throw new HttpError(501, 'Email sign-in is not set up on this server');
     const body = await readJson(req);
     const idToken = typeof body.idToken === 'string' ? body.idToken : '';
     if (!idToken) throw new HttpError(400, 'idToken is required');
-    return verifyGoogle(idToken, googleClientId);
+    return provider === 'google' ? verifyGoogle(idToken, googleClientId!) : verifyFirebase(idToken, firebaseProjectId!);
   }
 
-  /** Links the signed-in member to a Google account (replacing any earlier one). */
-  async function linkGoogle(req: IncomingMessage, res: ServerResponse) {
+  /** Links the signed-in member to a Google or email account (replacing any earlier one). */
+  async function linkAccount(provider: Provider, req: IncomingMessage, res: ServerResponse) {
     const member = authenticate(req);
-    const identity = await googleIdentity(req);
-    const existing = findAccount.get(identity.subject) as { member_id: string } | undefined;
+    const identity = await identityOf(provider, req);
+    const existing = findAccount.get(provider, identity.subject) as { member_id: string } | undefined;
     if (existing && existing.member_id !== member.id) {
-      throw new HttpError(409, 'That Google account is already linked to someone else');
+      throw new HttpError(409, `That ${provider === 'google' ? 'Google account' : 'email'} is already linked to someone else`);
     }
     db.exec('BEGIN');
     try {
       deleteAccountsOfMember.run(member.id);
-      insertAccount.run(identity.subject, member.id, identity.email, now());
+      insertAccount.run(provider, identity.subject, member.id, identity.email, now());
       db.exec('COMMIT');
     } catch (err) {
       db.exec('ROLLBACK');
@@ -511,31 +581,66 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
     send(res, 200, { email: identity.email });
   }
 
-  /** On a new phone: signs back in as the linked member and hands back their backup. */
-  async function restoreGoogle(req: IncomingMessage, res: ServerResponse) {
-    limitAttempts(req);
-    const identity = await googleIdentity(req);
-    const account = findAccount.get(identity.subject) as { member_id: string } | undefined;
-    const member = account ? (getMember.get(account.member_id) as Member | undefined) : undefined;
-    if (!member) {
-      throw new HttpError(404, 'Nothing is linked to this Google account yet. Sign in with Google on your old phone first.');
-    }
+  /** Signs a new phone in as `member` and hands back everything it needs to carry on. */
+  function sendRestored(res: ServerResponse, member: Member) {
     const token = newToken(member.id);
     const backup = getBackup.get(member.id) as { data: string } | undefined;
+    const account = accountOfMember.get(member.id) as { provider: Provider; email: string } | undefined;
     send(res, 200, {
       token,
       name: member.name,
-      email: identity.email,
+      email: account?.email ?? null,
+      provider: account?.provider ?? null,
       backup: backup ? JSON.parse(backup.data) : null,
       ...describe(member),
     });
   }
 
-  function unlinkGoogle(req: IncomingMessage, res: ServerResponse) {
+  /** On a new phone: signs back in as the linked member and hands back their backup. */
+  async function restoreAccount(provider: Provider, req: IncomingMessage, res: ServerResponse) {
+    limitAttempts(req);
+    const identity = await identityOf(provider, req);
+    const account = findAccount.get(provider, identity.subject) as { member_id: string } | undefined;
+    const member = account ? (getMember.get(account.member_id) as Member | undefined) : undefined;
+    if (!member) {
+      const how = provider === 'google' ? 'with Google' : 'with this email';
+      throw new HttpError(404, `Nothing is linked to this account yet. Sign in ${how} on your old phone first, or ask your partner for a restore code.`);
+    }
+    sendRestored(res, member);
+  }
+
+  /** Stops the account restoring this member. The backup stays, so your partner can still help you back in. */
+  function unlinkAccount(req: IncomingMessage, res: ServerResponse) {
     const member = authenticate(req);
     deleteAccountsOfMember.run(member.id);
-    deleteBackup.run(member.id);
     send(res, 200, { ok: true });
+  }
+
+  /**
+   * Makes a one-time code that signs a new phone in as your partner, with their backup,
+   * for when they've lost their phone. It works once, for 30 minutes.
+   */
+  function partnerRestoreCode(req: IncomingMessage, res: ServerResponse) {
+    const member = authenticate(req);
+    const partner = getPartner.get(member.couple_id, member.id) as { id: string; name: string } | undefined;
+    if (!partner) throw new HttpError(404, "Your partner hasn't joined your space yet");
+    const code = makePairCode(8);
+    const expiresAt = new Date(Date.now() + RESTORE_CODE_MS).toISOString();
+    deleteOldRestoreCodes.run(now());
+    deleteRestoreCodesOf.run(partner.id);
+    insertRestoreCode.run(hashToken(code), partner.id, member.id, expiresAt);
+    send(res, 201, { code, expiresAt, partner: partner.name });
+  }
+
+  /** On your new phone: uses the code your partner gave you. */
+  async function restoreWithCode(req: IncomingMessage, res: ServerResponse) {
+    limitAttempts(req);
+    const body = await readJson(req);
+    const code = String(body.code ?? '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const found = code ? (takeRestoreCode.get(hashToken(code), now()) as { member_id: string } | undefined) : undefined;
+    const member = found ? (getMember.get(found.member_id) as Member | undefined) : undefined;
+    if (!member) throw new HttpError(404, "That code didn't work. Codes work once, for 30 minutes. Ask for a new one.");
+    sendRestored(res, member);
   }
 
   async function saveBackup(req: IncomingMessage, res: ServerResponse) {
@@ -613,10 +718,14 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
       if (route === 'POST /api/couples') return await createCouple(req, res);
       if (route === 'POST /api/couples/join') return await joinCouple(req, res);
       if (route === 'GET /api/me') return send(res, 200, describe(authenticate(req)));
-      if (route === 'GET /api/config') return send(res, 200, { googleClientId });
-      if (route === 'POST /api/account/google') return await linkGoogle(req, res);
-      if (route === 'POST /api/account/google/restore') return await restoreGoogle(req, res);
-      if (route === 'POST /api/account/google/unlink') return unlinkGoogle(req, res);
+      if (route === 'GET /api/config') return send(res, 200, { googleClientId, emailSignIn: Boolean(firebaseProjectId) });
+      if (route === 'POST /api/account/google') return await linkAccount('google', req, res);
+      if (route === 'POST /api/account/google/restore') return await restoreAccount('google', req, res);
+      if (route === 'POST /api/account/email') return await linkAccount('email', req, res);
+      if (route === 'POST /api/account/email/restore') return await restoreAccount('email', req, res);
+      if (route === 'POST /api/account/google/unlink' || route === 'POST /api/account/unlink') return unlinkAccount(req, res);
+      if (route === 'POST /api/partner/restore-code') return partnerRestoreCode(req, res);
+      if (route === 'POST /api/restore/code') return await restoreWithCode(req, res);
       if (route === 'POST /api/backup') return await saveBackup(req, res);
       if (route === 'POST /api/logout') return logout(req, res);
       if (route === 'POST /api/logout/others') return logoutOthers(req, res);

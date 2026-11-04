@@ -71,11 +71,17 @@ Without a server you can still preview the shared features with **Settings → P
 
 Long-press the home screen, tap **Widgets** and pick **You&I💞**, or use **Add the widget to your home screen** in the Moments tab. It shows your partner's newest moment, or a still frame from it if it's a video. It updates as soon as the app syncs, and every 30 minutes or so it checks the server by itself, so a new moment turns up even if you don't open the app. Tapping it opens that moment in the app, where a video plays. To keep it private, pick **Settings → Widget → Keep it private**: the widget then only says a new moment arrived.
 
-### Moving to a new phone (Sign in with Google)
+### Moving to a new phone
 
-Signing in with Google ties your place in the space to your Google account and keeps a private backup on your server of the things that otherwise only live on the phone (names, anniversary, cycle logs and the chosen look). On a new phone, tap **Restore with Google** on the welcome screen and everything comes back, including your moments, notes and answers.
+Each phone keeps a private backup on your server of the things that otherwise only live on the phone (names, anniversary, cycle logs and the chosen look). On a new phone, tap **Restore my things** on the welcome screen and pick one of three ways back in. Everything comes back, including your moments, notes and answers.
 
-It needs a Google OAuth client, which you set up once:
+- **Google:** if you signed in with Google in **Settings → Your account**.
+- **Email:** if you signed in there with an email and password instead. **Forgot your password?** emails you a reset link.
+- **Code from your partner:** on their phone, **Settings → Your account → Help them back in** makes a one-time code that works for 30 minutes. This works even if you never signed in, and works both ways.
+
+Email sign-in uses Firebase Authentication. Switch it on once in the [Firebase console](https://console.firebase.google.com/project/private-pure-love-train/authentication/providers) under **Authentication → Sign-in method → Email/Password**. The server already knows the Firebase project (`FIREBASE_PROJECT_ID` in `docker-compose.yml`).
+
+Google sign-in needs a Google OAuth client, which you set up once:
 
 1. In [Google Cloud Console](https://console.cloud.google.com), create a project and set up the **OAuth consent screen** (External). While it's in testing, add both of your Gmail addresses as test users.
 2. Under **Credentials → Create credentials → OAuth client ID**, create a **Web application** client. Copy its client ID.

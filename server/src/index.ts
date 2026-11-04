@@ -14,6 +14,8 @@ const db = openDb(join(dataDir, 'pure-love.db'));
 const server = createServer(
   createApp(db, dataDir, {
     googleClientId: process.env.GOOGLE_CLIENT_ID,
+    // The Firebase project for email and password sign-in; leave unset to keep it off.
+    firebaseProjectId: process.env.FIREBASE_PROJECT_ID,
     // How many spaces the server holds, and how much room each gets for photos and videos.
     maxCouples: Number(process.env.MAX_SPACES) || undefined,
     storageLimitBytes: Number(process.env.STORAGE_LIMIT_GB) * 1e9 || undefined,

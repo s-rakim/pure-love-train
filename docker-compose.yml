@@ -11,6 +11,8 @@ services:
     environment:
       # For "Sign in with Google": the web client ID from Google Cloud. Put it in a .env file next to this one.
       - GOOGLE_CLIENT_ID=${GOOGLE_CLIENT_ID:-}
+      # For "Sign in with email": the Firebase project the app signs in with.
+      - FIREBASE_PROJECT_ID=${FIREBASE_PROJECT_ID:-private-pure-love-train}
       # How many spaces the server holds, and the room each gets for photos and videos.
       - MAX_SPACES=${MAX_SPACES:-10}
       - STORAGE_LIMIT_GB=${STORAGE_LIMIT_GB:-5}

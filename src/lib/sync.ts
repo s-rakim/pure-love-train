@@ -376,16 +376,14 @@ async function runSync(getState: () => State, update: Update) {
       }
     }
 
-    // Keep the private backup current, for moving to a new phone.
+    // Keep the private backup current, for moving to a new phone (by yourself or with your partner's help).
     const latest = getState();
-    if (latest.account) {
+    if (latest.sync && !latest.sync.restore) {
       const backup = backupOf(latest);
       const print = fingerprint(backup);
-      if (print !== latest.account.backupPrint) {
+      if (print !== latest.sync.backupPrint) {
         await request(start, '/api/backup', { method: 'POST', body: JSON.stringify({ data: backup }) });
-        update((s) =>
-          s.account ? { ...s, account: { ...s.account, backupPrint: print, backedUpAt: new Date().toISOString() } } : s,
-        );
+        update((s) => (s.sync ? { ...s, sync: { ...s.sync, backupPrint: print, backedUpAt: new Date().toISOString() } } : s));
       }
     }
 

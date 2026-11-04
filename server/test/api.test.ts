@@ -6,7 +6,9 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { after, before, describe, it } from 'node:test';
 
-import { createApp } from '../src/app.ts';
+import { generateKeyPairSync, sign } from 'node:crypto';
+
+import { createApp, verifyFirebaseIdToken } from '../src/app.ts';
 import { openDb } from '../src/db.ts';
 
 let server: Server;
@@ -21,7 +23,22 @@ before(async () => {
     const name = idToken.replace(/^google:/, '');
     return { subject: `sub-${name}`, email: `${name}@gmail.com` };
   };
-  server = createServer(createApp(openDb(join(dataDir, 'test.db')), dataDir, { googleClientId: 'web-client', verifyGoogle, signInAttempts: 1000, maxCouples: 1000 }));
+  // Stands in for Firebase: a token "email:<name>" signs in as <name>@mail.com.
+  const verifyFirebase = async (idToken: string, projectId: string) => {
+    assert.equal(projectId, 'love-project');
+    const name = idToken.replace(/^email:/, '');
+    return { subject: `uid-${name}`, email: `${name}@mail.com` };
+  };
+  server = createServer(
+    createApp(openDb(join(dataDir, 'test.db')), dataDir, {
+      googleClientId: 'web-client',
+      verifyGoogle,
+      firebaseProjectId: 'love-project',
+      verifyFirebase,
+      signInAttempts: 1000,
+      maxCouples: 1000,
+    }),
+  );
   await new Promise<void>((resolve) => server.listen(0, resolve));
   base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
 });
@@ -207,11 +224,94 @@ describe('google sign-in and backups', () => {
     assert.equal(unknown.status, 404);
   });
 
-  it('forgets the link and the backup on sign out', async () => {
+  it('forgets the link on sign out', async () => {
     const restored = (await call('/api/account/google/restore', { method: 'POST', json: { idToken: 'google:alex' } })).body;
     await call('/api/account/google/unlink', { method: 'POST', token: restored.token, json: {} });
     const again = await call('/api/account/google/restore', { method: 'POST', json: { idToken: 'google:alex' } });
     assert.equal(again.status, 404);
+  });
+});
+
+describe('email sign-in', () => {
+  it('links an email and restores with it', async () => {
+    assert.equal((await call('/api/config')).body.emailSignIn, true);
+    const mia = (await call('/api/couples', { method: 'POST', json: { name: 'Mia' } })).body;
+    const linked = await call('/api/account/email', { method: 'POST', token: mia.token, json: { idToken: 'email:mia' } });
+    assert.equal(linked.body.email, 'mia@mail.com');
+    await call('/api/backup', { method: 'POST', token: mia.token, json: { data: { names: { me: 'Mia', partner: '' } } } });
+
+    const restored = await call('/api/account/email/restore', { method: 'POST', json: { idToken: 'email:mia' } });
+    assert.equal(restored.status, 200);
+    assert.equal(restored.body.memberId, mia.memberId);
+    assert.equal(restored.body.provider, 'email');
+    assert.equal(restored.body.backup.names.me, 'Mia');
+    const viaGoogle = await call('/api/account/google/restore', { method: 'POST', json: { idToken: 'google:mia' } });
+    assert.equal(viaGoogle.status, 404, 'an email account is not a Google one');
+  });
+
+  it('checks Firebase tokens against Google keys', async () => {
+    const { publicKey, privateKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
+    const jwk = { ...publicKey.export({ format: 'jwk' }), kid: 'k1', alg: 'RS256', use: 'sig' };
+    const realFetch = globalThis.fetch;
+    globalThis.fetch = (async () => new Response(JSON.stringify({ keys: [jwk] }))) as typeof fetch;
+    const token = (claims: Record<string, unknown>, kid = 'k1') => {
+      const head = Buffer.from(JSON.stringify({ alg: 'RS256', kid })).toString('base64url');
+      const body = Buffer.from(JSON.stringify(claims)).toString('base64url');
+      return `${head}.${body}.${sign('RSA-SHA256', Buffer.from(`${head}.${body}`), privateKey).toString('base64url')}`;
+    };
+    const t = Math.floor(Date.now() / 1000);
+    const good = { iss: 'https://securetoken.google.com/p1', aud: 'p1', sub: 'u1', email: 'a@b.c', iat: t, exp: t + 3600 };
+    try {
+      assert.deepEqual(await verifyFirebaseIdToken(token(good), 'p1'), { subject: 'u1', email: 'a@b.c' });
+      await assert.rejects(verifyFirebaseIdToken(token(good), 'other-project'));
+      await assert.rejects(verifyFirebaseIdToken(token({ ...good, exp: t - 10 }), 'p1'));
+      await assert.rejects(verifyFirebaseIdToken(token(good, 'unknown'), 'p1'));
+      const forged = token(good).split('.');
+      forged[1] = Buffer.from(JSON.stringify({ ...good, sub: 'someone-else' })).toString('base64url');
+      await assert.rejects(verifyFirebaseIdToken(forged.join('.'), 'p1'));
+    } finally {
+      globalThis.fetch = realFetch;
+    }
+  });
+});
+
+describe('restoring your partner', () => {
+  it('gives a one-time code that brings your partner back with their backup', async () => {
+    const a = (await call('/api/couples', { method: 'POST', json: { name: 'Malc' } })).body;
+    const lonely = await call('/api/partner/restore-code', { method: 'POST', token: a.token, json: {} });
+    assert.equal(lonely.status, 404, 'no partner yet');
+    const b = (await call('/api/couples/join', { method: 'POST', json: { name: 'Hobi', code: a.pairCode } })).body;
+    const backup = { names: { me: 'Hobi', partner: 'Malc' }, cycle: { logs: { '2026-11-01': { flow: 'light' } } } };
+    await call('/api/backup', { method: 'POST', token: b.token, json: { data: backup } });
+
+    const made = await call('/api/partner/restore-code', { method: 'POST', token: a.token, json: {} });
+    assert.equal(made.status, 201);
+    assert.match(made.body.code, /^[A-Z2-9]{8}$/);
+    assert.equal(made.body.partner, 'Hobi');
+
+    const typed = `${made.body.code.slice(0, 4).toLowerCase()}-${made.body.code.slice(4)}`;
+    const restored = await call('/api/restore/code', { method: 'POST', json: { code: typed } });
+    assert.equal(restored.status, 200);
+    assert.equal(restored.body.memberId, b.memberId);
+    assert.equal(restored.body.name, 'Hobi');
+    assert.deepEqual(restored.body.backup, backup);
+    assert.equal(restored.body.partner.name, 'Malc');
+    assert.equal((await call('/api/me', { token: restored.body.token })).status, 200);
+
+    const again = await call('/api/restore/code', { method: 'POST', json: { code: made.body.code } });
+    assert.equal(again.status, 404, 'a code works once');
+    const nonsense = await call('/api/restore/code', { method: 'POST', json: { code: 'AAAAAAAA' } });
+    assert.equal(nonsense.status, 404);
+  });
+
+  it('works both ways and replaces older codes', async () => {
+    const a = (await call('/api/couples', { method: 'POST', json: { name: 'One' } })).body;
+    const b = (await call('/api/couples/join', { method: 'POST', json: { name: 'Two', code: a.pairCode } })).body;
+    const first = (await call('/api/partner/restore-code', { method: 'POST', token: b.token, json: {} })).body.code;
+    const second = (await call('/api/partner/restore-code', { method: 'POST', token: b.token, json: {} })).body.code;
+    assert.equal((await call('/api/restore/code', { method: 'POST', json: { code: first } })).status, 404);
+    const restored = (await call('/api/restore/code', { method: 'POST', json: { code: second } })).body;
+    assert.equal(restored.memberId, a.memberId);
   });
 });
 

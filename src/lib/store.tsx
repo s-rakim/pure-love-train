@@ -112,14 +112,16 @@ export type SyncState = {
   error?: string;
   /** Set on a phone restored from a backup until it has pulled back its own records too. */
   restore?: boolean;
-};
-
-/** The Google account this phone is signed in with, for moving to a new phone. */
-export type Account = {
-  email: string;
-  /** Fingerprint of the backup last uploaded, so unchanged data isn't sent again. */
+  /** Fingerprint of the private backup last uploaded, so unchanged data isn't sent again. */
   backupPrint?: string;
   backedUpAt?: string;
+};
+
+/** The Google or email account this phone is signed in with, for moving to a new phone. */
+export type Account = {
+  email: string;
+  /** How you signed in. Older phones only had Google. */
+  provider?: 'google' | 'email';
 };
 
 export type State = {
