@@ -1,5 +1,13 @@
 # Serves the sync server at https://$DOMAIN. Caddy gets and renews the certificate by itself.
 {$DOMAIN} {
 	encode gzip
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		-Server
+	}
+	# Videos are the biggest thing phones send.
+	request_body {
+		max_size 110MB
+	}
 	reverse_proxy pure-love-server:8787
 }

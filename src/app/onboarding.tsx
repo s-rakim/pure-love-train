@@ -1,7 +1,7 @@
 import { Ionicons } from '@expo/vector-icons';
 import { router } from 'expo-router';
 import { useState } from 'react';
-import { Text, View } from 'react-native';
+import { Alert, Platform, Text, View } from 'react-native';
 
 import { Flame } from '../components/Flame';
 import { Body, Button, Card, Chip, Field, Screen, Title, Wordmark } from '../components/ui';
@@ -10,6 +10,7 @@ import { resetPassword } from '../lib/firebase';
 import { isValidKey } from '../lib/dates';
 import { useStore } from '../lib/store';
 import { normalizeServerUrl } from '../lib/sync';
+import { isPrivateHttp } from '../lib/syncCore';
 import { makeStyles, space, useTheme } from '../theme';
 
 export default function Onboarding() {
@@ -34,12 +35,23 @@ export default function Onboarding() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
 
-  const restore = async () => {
+  const restore = async (checked = false) => {
+    const url = normalizeServerUrl(serverUrl);
+    // Restoring sends your sign-in and brings back your backup, so plain http only inside the tailnet.
+    if (!checked && url && !isPrivateHttp(url) && Platform.OS !== 'web') {
+      return Alert.alert(
+        "This address isn't private",
+        "It isn't a Tailscale address, so your sign-in and backup would travel unencrypted. Use the server's Tailscale address, or an https:// one.",
+        [
+          { text: 'Change it', style: 'cancel' },
+          { text: 'Use it anyway', style: 'destructive', onPress: () => restore(true) },
+        ],
+      );
+    }
     setBusy(true);
     setError(null);
     setNotice(null);
     try {
-      const url = normalizeServerUrl(serverUrl);
       const restored =
         method === 'google'
           ? await restoreWithGoogle(url)
@@ -195,7 +207,7 @@ export default function Onboarding() {
                       : 'Restore with a code from your partner'
               }
               variant="secondary"
-              onPress={restore}
+              onPress={() => restore()}
               disabled={busy || !ready}
               icon={
                 method === 'google' ? (

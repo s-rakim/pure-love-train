@@ -3,6 +3,10 @@
 #   docker compose -f docker-compose.yml -f deploy/docker-compose.public.yml up -d --build
 # The sync server itself still only listens on 127.0.0.1; Caddy reaches it over Docker's network.
 services:
+  pure-love-server:
+    environment:
+      # Caddy passes on each caller's address, so sign-in limits count each one separately.
+      - TRUST_PROXY=1
   caddy:
     image: caddy:2
     container_name: pure-love-caddy

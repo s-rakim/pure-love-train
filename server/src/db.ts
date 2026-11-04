@@ -78,6 +78,13 @@ export function openDb(path: string): DatabaseSync {
       expires_at TEXT NOT NULL
     );
 
+    -- Sign-ins that were cut off, kept for a while so that phone can be told why.
+    CREATE TABLE IF NOT EXISTS revoked_tokens (
+      token_hash TEXT PRIMARY KEY,
+      reason TEXT NOT NULL,
+      revoked_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS photos (
       id TEXT PRIMARY KEY,
       couple_id TEXT NOT NULL REFERENCES couples(id) ON DELETE CASCADE,
@@ -89,6 +96,8 @@ export function openDb(path: string): DatabaseSync {
   `);
   addColumn(db, 'couples', 'pair_code_at', 'TEXT');
   addColumn(db, 'member_tokens', 'last_used_at', 'TEXT');
+  // How the phone signed in: 'partner' when it used a restore code from the partner.
+  addColumn(db, 'member_tokens', 'via', 'TEXT');
   // Older servers kept each member's first sign-in on the member itself. Move it into
   // member_tokens, where it can be revoked, and leave a value no token can hash to.
   db.exec(`

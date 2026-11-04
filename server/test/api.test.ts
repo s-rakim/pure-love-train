@@ -260,12 +260,24 @@ describe('email sign-in', () => {
       return `${head}.${body}.${sign('RSA-SHA256', Buffer.from(`${head}.${body}`), privateKey).toString('base64url')}`;
     };
     const t = Math.floor(Date.now() / 1000);
-    const good = { iss: 'https://securetoken.google.com/p1', aud: 'p1', sub: 'u1', email: 'a@b.c', iat: t, exp: t + 3600 };
+    const good = {
+      iss: 'https://securetoken.google.com/p1',
+      aud: 'p1',
+      sub: 'u1',
+      email: 'a@b.c',
+      iat: t,
+      exp: t + 3600,
+      firebase: { sign_in_provider: 'password' },
+    };
     try {
       assert.deepEqual(await verifyFirebaseIdToken(token(good), 'p1'), { subject: 'u1', email: 'a@b.c' });
       await assert.rejects(verifyFirebaseIdToken(token(good), 'other-project'));
       await assert.rejects(verifyFirebaseIdToken(token({ ...good, exp: t - 10 }), 'p1'));
       await assert.rejects(verifyFirebaseIdToken(token(good, 'unknown'), 'p1'));
+      await assert.rejects(
+        verifyFirebaseIdToken(token({ ...good, firebase: { sign_in_provider: 'anonymous' } }), 'p1'),
+        'only email and password sign-ins',
+      );
       const forged = token(good).split('.');
       forged[1] = Buffer.from(JSON.stringify({ ...good, sub: 'someone-else' })).toString('base64url');
       await assert.rejects(verifyFirebaseIdToken(forged.join('.'), 'p1'));
@@ -298,6 +310,12 @@ describe('restoring your partner', () => {
     assert.equal(restored.body.partner.name, 'Malc');
     assert.equal((await call('/api/me', { token: restored.body.token })).status, 200);
 
+    const old = await call('/api/me', { token: b.token });
+    assert.equal(old.status, 401, 'the old phone is signed out');
+    assert.match(old.body.error, /Your partner signed you in on another phone/, 'and told why');
+    const wipe = await call('/api/leave', { method: 'POST', token: restored.body.token, json: {} });
+    assert.equal(wipe.status, 403, 'a phone signed in by the partner cannot delete everything straight away');
+
     const again = await call('/api/restore/code', { method: 'POST', json: { code: made.body.code } });
     assert.equal(again.status, 404, 'a code works once');
     const nonsense = await call('/api/restore/code', { method: 'POST', json: { code: 'AAAAAAAA' } });
@@ -312,6 +330,15 @@ describe('restoring your partner', () => {
     assert.equal((await call('/api/restore/code', { method: 'POST', json: { code: first } })).status, 404);
     const restored = (await call('/api/restore/code', { method: 'POST', json: { code: second } })).body;
     assert.equal(restored.memberId, a.memberId);
+  });
+
+  it('is not offered for a partner who has their own sign-in', async () => {
+    const a = (await call('/api/couples', { method: 'POST', json: { name: 'Kai' } })).body;
+    const b = (await call('/api/couples/join', { method: 'POST', json: { name: 'Lou', code: a.pairCode } })).body;
+    await call('/api/account/google', { method: 'POST', token: b.token, json: { idToken: 'google:lou' } });
+    const made = await call('/api/partner/restore-code', { method: 'POST', token: a.token, json: {} });
+    assert.equal(made.status, 409);
+    assert.equal((await call('/api/me', { token: b.token })).status, 200);
   });
 });
 
@@ -380,6 +407,10 @@ describe('cutting off phones and deleting data', () => {
     assert.equal(rewrite.body.results[0].ok, false, 'the reader cannot change the words');
     const forged = await call('/api/sync', { method: 'POST', token: b.token, json: { records: [{ kind: 'letter', id: 'l10', data: letter }] } });
     assert.equal(forged.body.results[0].ok, false, 'nobody writes a letter in the other’s name');
+    const removed = await call('/api/sync', { method: 'POST', token: b.token, json: { records: [{ kind: 'letter', id: 'l9', deleted: true }] } });
+    assert.equal(removed.body.results[0].ok, false, 'only the writer takes a letter back');
+    const takenBack = await call('/api/sync', { method: 'POST', token: a.token, json: { records: [{ kind: 'letter', id: 'l9', deleted: true }] } });
+    assert.equal(takenBack.body.results[0].ok, true);
   });
 });
 
@@ -407,6 +438,20 @@ describe('limits', () => {
     const bytes = new Uint8Array(20);
     const big = await post('/api/photos', bytes, { authorization: `Bearer ${first.token}`, 'content-type': 'image/jpeg' });
     assert.equal(big.status, 507);
+    // Sent in pieces with no length up front, it is still measured.
+    const chunked = new ReadableStream({
+      start(c) {
+        c.enqueue(bytes);
+        c.close();
+      },
+    });
+    const sneaky = await fetch(url + '/api/photos', {
+      method: 'POST',
+      headers: { authorization: `Bearer ${first.token}`, 'content-type': 'image/jpeg' },
+      body: chunked,
+      duplex: 'half',
+    } as RequestInit);
+    assert.equal(sneaky.status, 507);
   });
 
   it('stops guessing pairing codes', async () => {

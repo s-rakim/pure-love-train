@@ -1,0 +1,9 @@
+rules_version = '2';
+// Photos and videos live on your own sync server, not in Cloud Storage. Nobody may read or write here.
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /{allPaths=**} {
+      allow read, write: if false;
+    }
+  }
+}

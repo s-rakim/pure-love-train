@@ -26,6 +26,10 @@ const PAIR_CODE_MS = 24 * 60 * 60_000;
 const TOKEN_IDLE_MS = 180 * 24 * 60 * 60_000;
 /** How long a restore code from your partner works for. */
 const RESTORE_CODE_MS = 30 * 60_000;
+/** A phone your partner signed in for you can't delete your things for this long. */
+const PARTNER_RESTORE_HOLD_MS = 7 * 24 * 60 * 60_000;
+/** How long a cut-off phone is still told why it was signed out. */
+const REVOKED_KEEP_MS = 30 * 24 * 60 * 60_000;
 /** Owned records whose id is the author's member id, and those whose id starts with it. */
 const ID_IS_MEMBER = new Set(['profile', 'mood', 'cycle']);
 const ID_STARTS_WITH_MEMBER = new Set(['answer', 'pick', 'seen']);
@@ -52,6 +56,10 @@ export type AppOptions = {
   storageLimitBytes?: number;
   /** Tries a minute from one address at creating, joining or restoring a space. */
   signInAttempts?: number;
+  /** Tries a minute from everyone together, so many addresses can't guess codes either. */
+  signInAttemptsTotal?: number;
+  /** Behind a reverse proxy (like Caddy): take the caller's address from X-Forwarded-For. */
+  trustProxy?: boolean;
   /** Checks a Google ID token; swapped out in tests. */
   verifyGoogle?: (idToken: string, clientId: string) => Promise<GoogleIdentity>;
   /** The Firebase project whose email and password sign-ins this server trusts. */
@@ -89,8 +97,11 @@ const FIREBASE_KEYS = 'https://www.googleapis.com/service_accounts/v1/jwk/secure
 let firebaseKeys: { keys: (JsonWebKey & { kid?: string })[]; fetchedAt: number } | null = null;
 
 async function firebaseKey(kid: string) {
-  const fresh = firebaseKeys && Date.now() - firebaseKeys.fetchedAt < 60 * 60_000;
-  if (!fresh || !firebaseKeys?.keys.some((k) => k.kid === kid)) {
+  const age = firebaseKeys ? Date.now() - firebaseKeys.fetchedAt : Infinity;
+  const known = firebaseKeys?.keys.some((k) => k.kid === kid);
+  // Fetch hourly, or sooner for a key we haven't seen, but not more than once a minute,
+  // so made-up key ids can't make the server hammer Google.
+  if (age > 60 * 60_000 || (!known && age > 60_000)) {
     try {
       const res = await fetch(FIREBASE_KEYS);
       if (res.ok) firebaseKeys = { keys: ((await res.json()) as { keys: JsonWebKey[] }).keys, fetchedAt: Date.now() };
@@ -128,7 +139,9 @@ export async function verifyFirebaseIdToken(idToken: string, projectId: string):
     Number(claims.iat ?? Infinity) > nowSec + 300 ||
     typeof claims.sub !== 'string' ||
     !claims.sub ||
-    typeof claims.email !== 'string'
+    typeof claims.email !== 'string' ||
+    // Only email and password sign-ins; not anonymous or any other kind Firebase may allow later.
+    (claims.firebase as { sign_in_provider?: unknown } | undefined)?.sign_in_provider !== 'password'
   ) {
     throw fail();
   }
@@ -159,11 +172,19 @@ const CORS = {
   'access-control-allow-headers': 'authorization, content-type, range',
   'access-control-allow-methods': 'GET, POST, OPTIONS',
   'access-control-expose-headers': 'content-range, content-length, accept-ranges',
+  'referrer-policy': 'no-referrer',
+  'x-frame-options': 'DENY',
 };
 
 function send(res: ServerResponse, status: number, body: unknown) {
   const json = JSON.stringify(body);
-  res.writeHead(status, { ...CORS, 'content-type': 'application/json', 'content-length': Buffer.byteLength(json) });
+  res.writeHead(status, {
+    ...CORS,
+    'content-type': 'application/json',
+    'content-length': Buffer.byteLength(json),
+    // Answers carry sign-in tokens and private backups; nothing in between may keep a copy.
+    'cache-control': 'no-store',
+  });
   res.end(json);
 }
 
@@ -239,18 +260,26 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
   const maxCouples = options.maxCouples ?? 10;
   const storageLimit = options.storageLimitBytes ?? 5_000_000_000;
   const signInAttempts = options.signInAttempts ?? 10;
+  const signInAttemptsTotal = options.signInAttemptsTotal ?? Math.max(signInAttempts, 300);
+  const trustProxy = options.trustProxy ?? false;
   const photoDir = join(dataDir, 'photos');
   mkdirSync(photoDir, { recursive: true });
 
   const findMemberByToken = db.prepare(`
-    SELECT m.id, m.couple_id, m.name, t.last_used_at FROM member_tokens t JOIN members m ON m.id = t.member_id
-    WHERE t.token_hash = ?
+    SELECT m.id, m.couple_id, m.name, t.last_used_at, t.via, t.created_at FROM member_tokens t
+    JOIN members m ON m.id = t.member_id WHERE t.token_hash = ?
   `);
+  const otherTokensOf = db.prepare('SELECT token_hash FROM member_tokens WHERE member_id = ? AND token_hash != ?');
+  const insertRevoked = db.prepare('INSERT OR REPLACE INTO revoked_tokens (token_hash, reason, revoked_at) VALUES (?, ?, ?)');
+  const findRevoked = db.prepare('SELECT reason FROM revoked_tokens WHERE token_hash = ?');
+  const deleteOldRevoked = db.prepare('DELETE FROM revoked_tokens WHERE revoked_at < ?');
   const touchToken = db.prepare('UPDATE member_tokens SET last_used_at = ? WHERE token_hash = ?');
   const deleteToken = db.prepare('DELETE FROM member_tokens WHERE token_hash = ?');
   const deleteOtherTokens = db.prepare('DELETE FROM member_tokens WHERE member_id = ? AND token_hash != ?');
   const deleteIdleTokens = db.prepare('DELETE FROM member_tokens WHERE coalesce(last_used_at, created_at) < ?');
-  const insertToken = db.prepare('INSERT INTO member_tokens (token_hash, member_id, created_at, last_used_at) VALUES (?, ?, ?, ?)');
+  const insertToken = db.prepare(
+    'INSERT INTO member_tokens (token_hash, member_id, created_at, last_used_at, via) VALUES (?, ?, ?, ?, ?)',
+  );
   const deleteMember = db.prepare('DELETE FROM members WHERE id = ?');
   const deleteCouple = db.prepare('DELETE FROM couples WHERE id = ?');
   const countCouples = db.prepare('SELECT COUNT(*) AS n FROM couples');
@@ -307,9 +336,21 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
 
   // A few tries a minute is plenty for people; it stops anyone guessing pairing codes.
   const attempts = new Map<string, { count: number; resetAt: number }>();
+  const total = { count: 0, resetAt: 0 };
+  function clientAddress(req: IncomingMessage): string {
+    // Caddy adds the address it saw to the end of X-Forwarded-For; anything before it came from the caller.
+    if (trustProxy) {
+      const forwarded = String(req.headers['x-forwarded-for'] ?? '').split(',').pop()?.trim();
+      if (forwarded) return forwarded;
+    }
+    return req.socket.remoteAddress ?? 'unknown';
+  }
   function limitAttempts(req: IncomingMessage) {
-    const key = req.socket.remoteAddress ?? 'unknown';
+    const tooMany = () => new HttpError(429, 'Too many tries. Wait a minute and try again.');
     const nowMs = Date.now();
+    if (total.resetAt <= nowMs) Object.assign(total, { count: 0, resetAt: nowMs + 60_000 });
+    if (++total.count > signInAttemptsTotal) throw tooMany();
+    const key = clientAddress(req);
     const entry = attempts.get(key);
     if (!entry || entry.resetAt <= nowMs) {
       if (attempts.size > 10_000) attempts.clear();
@@ -317,7 +358,7 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
       return;
     }
     entry.count += 1;
-    if (entry.count > signInAttempts) throw new HttpError(429, 'Too many tries. Wait a minute and try again.');
+    if (entry.count > signInAttempts) throw tooMany();
   }
 
   function removeFile(id: string) {
@@ -330,22 +371,39 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
     return header.startsWith('Bearer ') ? header.slice(7) : '';
   }
 
-  function authenticate(req: IncomingMessage): Member {
+  type SignedIn = Member & { last_used_at: string | null; via: string | null; created_at: string };
+
+  function signedIn(req: IncomingMessage): SignedIn {
     const token = bearer(req);
     const hash = token ? hashToken(token) : '';
-    const found = hash ? (findMemberByToken.get(hash) as (Member & { last_used_at: string | null }) | undefined) : undefined;
-    if (!found) throw new HttpError(401, 'Not signed in');
+    const found = hash ? (findMemberByToken.get(hash) as SignedIn | undefined) : undefined;
+    if (!found) {
+      const revoked = hash ? (findRevoked.get(hash) as { reason: string } | undefined) : undefined;
+      throw new HttpError(401, revoked?.reason ?? 'Not signed in');
+    }
     // Note the day each phone was last seen, so phones gone quiet for months can be signed out.
     const stamp = now();
     if (!found.last_used_at || found.last_used_at.slice(0, 10) !== stamp.slice(0, 10)) touchToken.run(stamp, hash);
+    return found;
+  }
+
+  function authenticate(req: IncomingMessage): Member {
+    const found = signedIn(req);
     return { id: found.id, couple_id: found.couple_id, name: found.name };
   }
 
   /** Signs in one more phone as this member and returns its token. */
-  function newToken(memberId: string): string {
+  function newToken(memberId: string, via: string | null = null): string {
     const token = randomBytes(32).toString('hex');
-    insertToken.run(hashToken(token), memberId, now(), now());
+    insertToken.run(hashToken(token), memberId, now(), now(), via);
     return token;
+  }
+
+  /** Signs out every phone of this member except `keepHash`, and remembers why for each. */
+  function revokeOthers(memberId: string, keepHash: string, reason: string): number {
+    const hashes = otherTokensOf.all(memberId, keepHash) as { token_hash: string }[];
+    for (const { token_hash } of hashes) insertRevoked.run(token_hash, reason, now());
+    return Number(deleteOtherTokens.run(memberId, keepHash).changes);
   }
 
   function newMember(coupleId: string, name: string) {
@@ -482,9 +540,11 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
       return null;
     }
     const rule = WRITER_FIELD[kind];
-    if (!rule || deleted) return null;
-    const writer = (data as Record<string, unknown> | null)?.[rule.writer];
+    if (!rule) return null;
     const before = existing?.data ? (JSON.parse(existing.data) as Record<string, unknown>) : null;
+    // Only the writer takes back a letter or coupon.
+    if (deleted) return !before || before[rule.writer] === member.id ? null : 'Belongs to your partner';
+    const writer = (data as Record<string, unknown> | null)?.[rule.writer];
     // New ones are written by whoever sends them; after that the other partner only ticks them off.
     if (!before) return writer === member.id ? null : 'Belongs to your partner';
     if (before[rule.writer] === member.id) return writer === member.id ? null : 'Belongs to your partner';
@@ -515,8 +575,8 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
   /** Signs out every other phone of this member, such as a lost one. */
   function logoutOthers(req: IncomingMessage, res: ServerResponse) {
     const member = authenticate(req);
-    const { changes } = deleteOtherTokens.run(member.id, hashToken(bearer(req)));
-    send(res, 200, { ok: true, signedOut: Number(changes) });
+    const signedOut = revokeOthers(member.id, hashToken(bearer(req)), 'This phone was signed out from your other phone.');
+    send(res, 200, { ok: true, signedOut });
   }
 
   /**
@@ -525,7 +585,12 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
    * sign-in. The last one out takes the whole space with them.
    */
   function leave(req: IncomingMessage, res: ServerResponse) {
-    const member = authenticate(req);
+    const found = signedIn(req);
+    // Someone your partner signed in as you can't wipe out your things straight away.
+    if (found.via === 'partner' && Date.parse(found.created_at) > Date.now() - PARTNER_RESTORE_HOLD_MS) {
+      throw new HttpError(403, 'This phone was signed in with a code from your partner, so it can only leave the space after a week.');
+    }
+    const member: Member = { id: found.id, couple_id: found.couple_id, name: found.name };
     const files: string[] = [];
     db.exec('BEGIN');
     try {
@@ -582,8 +647,7 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
   }
 
   /** Signs a new phone in as `member` and hands back everything it needs to carry on. */
-  function sendRestored(res: ServerResponse, member: Member) {
-    const token = newToken(member.id);
+  function sendRestored(res: ServerResponse, member: Member, token = newToken(member.id)) {
     const backup = getBackup.get(member.id) as { data: string } | undefined;
     const account = accountOfMember.get(member.id) as { provider: Provider; email: string } | undefined;
     send(res, 200, {
@@ -624,6 +688,12 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
     const member = authenticate(req);
     const partner = getPartner.get(member.couple_id, member.id) as { id: string; name: string } | undefined;
     if (!partner) throw new HttpError(404, "Your partner hasn't joined your space yet");
+    // Someone with their own Google or email sign-in gets back in with it, so nobody else can.
+    const account = accountOfMember.get(partner.id) as { provider: Provider } | undefined;
+    if (account) {
+      const how = account.provider === 'google' ? 'Restore with Google' : 'Restore with email';
+      throw new HttpError(409, `${partner.name} has their own sign-in, so they can use ${how} on their new phone.`);
+    }
     const code = makePairCode(8);
     const expiresAt = new Date(Date.now() + RESTORE_CODE_MS).toISOString();
     deleteOldRestoreCodes.run(now());
@@ -640,7 +710,16 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
     const found = code ? (takeRestoreCode.get(hashToken(code), now()) as { member_id: string } | undefined) : undefined;
     const member = found ? (getMember.get(found.member_id) as Member | undefined) : undefined;
     if (!member) throw new HttpError(404, "That code didn't work. Codes work once, for 30 minutes. Ask for a new one.");
-    sendRestored(res, member);
+    // Only one phone at a time comes back this way: any other phone signed in as this member
+    // (a lost one, or the real you if someone else used the code) is signed out and told why.
+    const token = newToken(member.id, 'partner');
+    const at = new Date().toISOString().slice(0, 16).replace('T', ' ');
+    revokeOthers(
+      member.id,
+      hashToken(token),
+      `Your partner signed you in on another phone (${at} UTC), so this one was signed out. If that wasn't you, talk to them, then sign in with Google or email to keep your place.`,
+    );
+    sendRestored(res, member, token);
   }
 
   async function saveBackup(req: IncomingMessage, res: ServerResponse) {
@@ -669,6 +748,12 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
       rmSync(path, { force: true });
       throw new HttpError(400, 'The file is empty');
     }
+    // A file sent without a length (or several at once) is only measured now.
+    const after = storageUsed.get(member.couple_id) as { bytes: number };
+    if (after.bytes + size > storageLimit) {
+      rmSync(path, { force: true });
+      throw new HttpError(507, 'Your space is out of room on the server. Delete some old videos or raise STORAGE_LIMIT_GB.');
+    }
     insertPhoto.run(id, member.couple_id, member.id, mime, size, now());
     send(res, 201, { photoId: id });
   }
@@ -678,7 +763,12 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
     const photo = getPhoto.get(id) as { id: string; couple_id: string; mime: string; size: number } | undefined;
     if (!photo || photo.couple_id !== member.couple_id) throw new HttpError(404, 'Photo not found');
     const path = join(photoDir, photo.id);
-    const size = statSync(path).size;
+    let size: number;
+    try {
+      size = statSync(path).size;
+    } catch {
+      throw new HttpError(404, 'Photo not found');
+    }
     const headers = {
       ...CORS,
       'content-type': photo.mime,
@@ -702,7 +792,10 @@ export function createApp(db: DatabaseSync, dataDir: string, options: AppOptions
   }
 
   // Phones that haven't synced for months are signed out; they can pair or restore again.
-  const sweepIdle = () => deleteIdleTokens.run(new Date(Date.now() - TOKEN_IDLE_MS).toISOString());
+  const sweepIdle = () => {
+    deleteIdleTokens.run(new Date(Date.now() - TOKEN_IDLE_MS).toISOString());
+    deleteOldRevoked.run(new Date(Date.now() - REVOKED_KEEP_MS).toISOString());
+  };
   sweepIdle();
   setInterval(sweepIdle, 24 * 60 * 60_000).unref();
 

@@ -19,8 +19,14 @@ const server = createServer(
     // How many spaces the server holds, and how much room each gets for photos and videos.
     maxCouples: Number(process.env.MAX_SPACES) || undefined,
     storageLimitBytes: Number(process.env.STORAGE_LIMIT_GB) * 1e9 || undefined,
+    // Set when Caddy (or another reverse proxy) sits in front, so limits count each caller.
+    trustProxy: process.env.TRUST_PROXY === '1',
   }),
 );
+
+// Slow or stalled requests shouldn't hold connections open for long.
+server.headersTimeout = 20_000;
+server.requestTimeout = 10 * 60_000;
 
 server.listen(port, () => {
   console.log(`Pure Love sync server listening on port ${port}, data in ${dataDir}`);

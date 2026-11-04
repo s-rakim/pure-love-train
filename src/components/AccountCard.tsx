@@ -176,12 +176,13 @@ export function AccountCard() {
               <Body muted style={{ fontSize: 13 }}>
                 On {partnerName}'s new phone, choose “Restore with a code from your partner” and type this in. It works
                 once, until {new Date(code.expiresAt).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}.
+                Only give it to {partnerName} yourself: whoever types it in signs in as them.
               </Body>
             </>
           ) : (
             <Body muted style={{ fontSize: 13 }}>
-              Lost their phone? Make a one-time code that brings back everything of theirs on a new one, even if they
-              never signed in.
+              Lost their phone? Make a one-time code that brings back everything of theirs on a new one, if they never
+              set up Google or email sign-in. Their old phone gets signed out.
             </Body>
           )}
           <Button

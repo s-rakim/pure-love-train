@@ -18,6 +18,14 @@ services:
       - STORAGE_LIMIT_GB=${STORAGE_LIMIT_GB:-5}
     volumes:
       - pure-love-data:/data
+    # Nothing in the container needs to change itself or gain privileges.
+    read_only: true
+    tmpfs:
+      - /tmp
+    cap_drop:
+      - ALL
+    security_opt:
+      - no-new-privileges:true
 
 volumes:
   pure-love-data:
