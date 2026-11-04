@@ -2,29 +2,90 @@
 <html lang="en">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>You&I</title>
 <meta name="description" content="A little space just for two: daily questions, shared moments and your cycle.">
 <link rel="icon" href="/favicon.png">
-<link rel="stylesheet" href="/style.css">
+<link rel="stylesheet" href="/home.css">
 </head>
-<body>
+<body class="home">
+
+<section class="hero">
+  <div class="hero-top">
+    <a class="brand" href="/"><img src="/icon.png" alt="">You&amp;I</a>
+    <span class="tag">A private app for couples</span>
+  </div>
+  <div class="hero-copy">
+    <h1>A little space just for <span class="accent">two</span> <span class="dash">—</span></h1>
+    <p>Daily questions, shared moments, love notes and a streak you keep alive together. Only your partner ever sees it.</p>
+  </div>
+  <a class="scroll-cue" href="#inside" aria-label="See what's inside"><span></span></a>
+</section>
+
 <main>
-<header><img src="/icon.png" alt=""><a href="/">You&amp;I</a></header>
-<h1>A little space just for two.</h1>
-<p>You&amp;I is a private app for couples: a daily question, shared moments, love notes, This or that, a streak to keep alive together, and an optional shared view of your cycle.</p>
-<p>Everything you share goes only to your partner, through a server we run ourselves. No ads use your content, and nothing is sold.</p>
-<div class="shots">
-<figure><img src="/screens/home.png" alt="Home: your streak, moods and what your partner sent" loading="lazy"><figcaption>Home</figcaption></figure>
-<figure><img src="/screens/connect.png" alt="Connect: the daily question and This or that" loading="lazy"><figcaption>Connect</figcaption></figure>
-<figure><img src="/screens/moments.png" alt="Moments: photos and videos you share" loading="lazy"><figcaption>Moments</figcaption></figure>
-<figure><img src="/screens/cycle.png" alt="Cycle: where you are and what's coming" loading="lazy"><figcaption>Cycle</figcaption></figure>
-<figure><img src="/screens/us.png" alt="Us: letters, coupons and date ideas" loading="lazy"><figcaption>Us</figcaption></figure>
-</div>
-<div class="card">
-<p><strong>Contact</strong><br>Questions, problems or ideas: <a href="mailto:rakimmalcolm06@gmail.com">rakimmalcolm06@gmail.com</a> or <a href="mailto:pontiacmetx@gmail.com">pontiacmetx@gmail.com</a></p>
-</div>
-<nav><a href="/">Home</a><a href="/privacy">Privacy policy</a><a href="/terms">Terms</a><a href="/delete">Delete your data</a></nav>
+  <section class="statement reveal">
+    <p>You&amp;I is a quiet corner of your phone for the two of you. <span>A question to answer every day, the photos you share, notes for each other, and, if you want, a shared view of your cycle.</span></p>
+  </section>
+
+  <section class="inside" id="inside">
+    <p class="eyebrow reveal">What's inside</p>
+    <ol class="features">
+      <li class="reveal"><span class="num">01</span><h2>A question every day</h2><p>Answer today's question and see what your partner said. It's a small way to keep learning about each other.</p></li>
+      <li class="reveal"><span class="num">02</span><h2>This or that</h2><p>Quick pairs to pick between, fifty a day. Find out where you agree, and where you really don't.</p></li>
+      <li class="reveal"><span class="num">03</span><h2>Moments</h2><p>Photos and videos for just the two of you, kept together in one place.</p></li>
+      <li class="reveal"><span class="num">04</span><h2>Notes, letters and coupons</h2><p>Leave something for them to find, write a letter, or save date ideas for later.</p></li>
+      <li class="reveal"><span class="num">05</span><h2>Your streak</h2><p>Show up for each other every day and keep the flame going together.</p></li>
+      <li class="reveal"><span class="num">06</span><h2>Your cycle, if you want</h2><p>Share where you are and what's coming, so your partner knows how to show up.</p></li>
+    </ol>
+  </section>
+
+  <section class="look">
+    <p class="eyebrow reveal">A look inside</p>
+    <div class="shots">
+      <figure class="reveal"><img src="/screens/home.png" alt="Home: your streak, moods and what your partner sent" loading="lazy" width="390" height="844"><figcaption>Home</figcaption></figure>
+      <figure class="reveal"><img src="/screens/connect.png" alt="Connect: the daily question and This or that" loading="lazy" width="390" height="844"><figcaption>Connect</figcaption></figure>
+      <figure class="reveal"><img src="/screens/moments.png" alt="Moments: photos and videos you share" loading="lazy" width="390" height="844"><figcaption>Moments</figcaption></figure>
+      <figure class="reveal"><img src="/screens/cycle.png" alt="Cycle: where you are and what's coming" loading="lazy" width="390" height="844"><figcaption>Cycle</figcaption></figure>
+      <figure class="reveal"><img src="/screens/us.png" alt="Us: letters, coupons and date ideas" loading="lazy" width="390" height="844"><figcaption>Us</figcaption></figure>
+    </div>
+  </section>
+
+  <section class="promise reveal">
+    <h2>Only your partner sees it.</h2>
+    <ul>
+      <li>Everything you share goes through a server we run ourselves, straight to your partner.</li>
+      <li>No ads use your content, and nothing is ever sold.</li>
+      <li>You can delete everything whenever you like. <a href="/delete">Here's how</a>.</li>
+    </ul>
+  </section>
+
+  <section class="contact reveal" id="contact">
+    <p class="eyebrow">Say hello</p>
+    <h2>Questions, problems or ideas?</h2>
+    <p class="mails"><a href="mailto:rakimmalcolm06@gmail.com">rakimmalcolm06@gmail.com</a><a href="mailto:pontiacmetx@gmail.com">pontiacmetx@gmail.com</a></p>
+  </section>
+
+  <footer>
+    <span>© 2026 You&amp;I</span>
+    <nav><a href="/privacy">Privacy policy</a><a href="/terms">Terms</a><a href="/delete">Delete your data</a></nav>
+  </footer>
 </main>
+
+<nav class="pill" aria-label="Site">
+  <a class="pill-btn" href="#contact" aria-label="Contact us">
+    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="14" rx="2.5"/><path d="m4 7 8 6 8-6"/></svg>
+  </a>
+  <a class="pill-mark" href="/">You&amp;I</a>
+  <details class="pill-menu">
+    <summary class="pill-btn" aria-label="Menu"><span class="bars"></span></summary>
+    <div class="menu-panel">
+      <a href="#inside">What's inside</a>
+      <a href="/privacy">Privacy policy</a>
+      <a href="/terms">Terms</a>
+      <a href="/delete">Delete your data</a>
+    </div>
+  </details>
+</nav>
+
 </body>
 </html>
